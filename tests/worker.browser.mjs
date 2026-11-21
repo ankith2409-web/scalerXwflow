@@ -14,6 +14,7 @@ let browser;
 try {
   const origin = 'http://127.0.0.1:' + server.address().port;
   browser = await chromium.launch({
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
     args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
   });
   const mobile = await browser.newContext({ viewport: { width: 360, height: 800 }, isMobile: true, hasTouch: true });
@@ -46,7 +47,7 @@ try {
   await page.getByRole('heading', { name: 'Your work history is saved' }).waitFor();
   await page.reload();
   await page.getByRole('heading', { name: 'Saved histories' }).waitFor();
-  await page.getByText('Before lockdown, for two monsoons', { exact: true }).waitFor();
+  await page.getByRole('definition').filter({ hasText: 'Before lockdown, for two monsoons' }).waitFor();
   await page.getByRole('heading', { name: 'Near Jodhpur, Rajasthan' }).waitFor();
   const cookies = await mobile.cookies();
   assert.equal(cookies.find(({ name }) => name === 'we_session')?.httpOnly, true);
@@ -61,9 +62,41 @@ try {
   await desktop.getByRole('heading', { name: 'आपके काम का रिकॉर्ड' }).waitFor();
   await desktop.reload();
   await desktop.getByRole('heading', { name: 'आपके काम का रिकॉर्ड' }).waitFor();
-  console.log('Browser checks passed: mobile mic + stub transcript, correction, approximate dates, reload, sign-out, and Hindi desktop.');
+  await desktop.goto(origin + '/staff/review');
+  await desktop.getByRole('button', { name: 'Enter as demo staff' }).click();
+  await desktop.getByRole('button', { name: /Worker A \/ Worker C/ }).click();
+  await desktop.getByRole('heading', { name: 'Conflicting workplace details' }).waitFor();
+  assert.equal(await desktop.getByRole('button', { name: 'Accept site link' }).count(), 0);
+  await desktop.getByLabel('Decision reason').fill('The locations differ.');
+  await desktop.getByRole('button', { name: 'Reject link' }).click();
+  await desktop.getByText('Review decision saved.').waitFor();
+  await desktop.getByRole('button', { name: /Worker A \/ Worker B/ }).click();
+  await desktop.getByLabel('Decision reason').fill('The locality and crossing agree.');
+  await desktop.getByRole('button', { name: 'Accept site link' }).click();
+  await desktop.getByRole('button', { name: 'Create simulated referral' }).click();
+  await desktop.getByRole('link', { name: 'Open referrals' }).click();
+  await desktop.getByRole('heading', { name: 'Referral follow-up' }).waitFor();
+  const advance = async (button, result, approve = false) => {
+    await desktop.getByLabel('Follow-up note').fill('Fictional demo follow-up.');
+    if (approve) {
+      assert.equal(await desktop.getByRole('button', { name: button }).isDisabled(), true);
+      await desktop.getByLabel('Record simulated health-team approval').check();
+    }
+    await desktop.getByRole('button', { name: button }).click();
+    await desktop.locator('.referral-timeline').getByText(result, { exact: true }).waitFor();
+  };
+  await advance('Approve referral', 'Approved', true);
+  await advance('Simulate invitation', 'Invited');
+  await advance('Record response', 'Responded');
+  await advance('Record appointment', 'Scheduled');
+  await advance('Mark completed', 'Completed');
+  assert.equal(await desktop.locator('.referral-timeline li').count(), 6);
+  await desktop.reload();
+  await desktop.locator('.referral-timeline').getByText('Completed', { exact: true }).waitFor();
+  await desktop.setViewportSize({ width: 360, height: 800 });
+  assert.equal(await desktop.evaluate(() => document.documentElement.scrollWidth), 360);
+  console.log('Browser checks passed: mobile microphone with stub transcription, correction, approximate dates, reload, sign-out, Hindi, candidate decisions and simulated referral completion.');
 } finally {
   await browser?.close();
   server.close();
 }
-

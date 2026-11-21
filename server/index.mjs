@@ -8,7 +8,7 @@ import { captureFormat, transcribe } from './speech.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const audioTypes = new Set(['audio/webm', 'audio/ogg', 'audio/mp4']);
-const pagePaths = new Set(['/', '/intake', '/history']);
+const pagePaths = new Set(['/', '/intake', '/intake/review', '/history', '/staff/review', '/staff/referrals']);
 
 function send(res, code, value) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -39,7 +39,7 @@ async function json(req) {
   if (req.headers['content-type']?.split(';')[0] !== 'application/json') {
     throw new RequestError(415, 'Send JSON for this request.');
   }
-  const raw = await body(req, 8_192);
+  const raw = await body(req, 24_576);
   try {
     const parsed = JSON.parse(raw.toString('utf8'));
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
@@ -55,8 +55,8 @@ export function createApp({
 } = {}) {
   if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
   const db = openStore(dbPath);
-  const cookie = (res, value, maxAge) => res.setHeader('Set-Cookie',
-    'we_session=' + value + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + maxAge + (secureCookies ? '; Secure' : ''));
+  const cookie = (res, value, maxAge, name = 'we_session') => res.appendHeader('Set-Cookie',
+    name + '=' + value + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + maxAge + (secureCookies ? '; Secure' : ''));
 
   const server = createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -73,8 +73,9 @@ export function createApp({
           const allowedOrigin = appOrigin ?? ('http://' + req.headers.host);
           if (req.headers.origin !== allowedOrigin) throw new RequestError(403, 'Open WorkEcho to submit this request.');
         }
-        const token = req.headers.cookie?.split('; ').find((item) => item.startsWith('we_session='))?.slice(11);
-        const session = db.getSession(token);
+        const readCookie = (name) => req.headers.cookie?.split(';').map((item) => item.trim())
+          .find((item) => item.startsWith(name + '='))?.slice(name.length + 1);
+        const session = db.getSession(readCookie('we_session'));
 
         if (path === '/api/session' && method === 'GET') {
           return send(res, 200, { active: Boolean(session), voiceAvailable: Boolean(speechKey) });
@@ -82,19 +83,46 @@ export function createApp({
         if (path === '/api/session' && method === 'DELETE') {
           if (session) db.signOut(session);
           cookie(res, '', 0);
+          cookie(res, '', 0, 'we_staff');
           return send(res, 200, { active: false });
         }
         if (path === '/api/intakes' && method === 'POST') {
           const data = await json(req);
-          if (!['en', 'hi'].includes(data.language) || typeof data.voice !== 'boolean' || data.save !== true) {
+          if (!['en', 'hi'].includes(data.language) || typeof data.voice !== 'boolean' || data.save !== true ||
+            ['matching', 'outreach'].some((key) => data[key] !== undefined && typeof data[key] !== 'boolean')) {
             throw new RequestError(400, 'Choose a language and agree to save a fictional history.');
           }
           const owner = session ?? db.createSession();
           if (!session) cookie(res, owner.token, SESSION_SECONDS);
           return send(res, 201, db.startIntake(owner, data));
         }
+        if (path.startsWith('/api/staff/')) {
+          const active = db.demo.signedIn(session, readCookie('we_staff'));
+          if (path === '/api/staff/session') {
+            if (method === 'GET') return send(res, 200, { active });
+            if (method === 'POST') {
+              const owner = session ?? db.createSession();
+              if (!session) cookie(res, owner.token, SESSION_SECONDS);
+              cookie(res, db.demo.signIn(owner), SESSION_SECONDS, 'we_staff');
+              return send(res, 200, { active: true });
+            }
+            if (method === 'DELETE') {
+              if (active) db.demo.signOut(session);
+              cookie(res, '', 0, 'we_staff');
+              return send(res, 200, { active: false });
+            }
+          }
+          if (!active) throw new RequestError(401, 'Open the demo staff workspace.');
+          if (method === 'GET' && path === '/api/staff/matches') return send(res, 200, db.demo.candidates(session));
+          if (method === 'GET' && path === '/api/staff/referrals') return send(res, 200, db.demo.referrals(session));
+          const [, area, target, operation] = path.match(/^\/api\/staff\/(matches|referrals)\/([\w:-]+)\/(decision|transition)$/) ?? [];
+          if (method === 'POST' && area === 'matches' && operation === 'decision') return send(res, 200, db.demo.decide(session, target, await json(req)));
+          if (method === 'POST' && area === 'referrals' && operation === 'transition') return send(res, 200, db.demo.transition(session, target, await json(req)));
+        }
         if (!session) throw new RequestError(401, 'This session has ended. Start a new work history.');
         if (path === '/api/history' && method === 'GET') return send(res, 200, db.history(session));
+        const [, historyId] = path.match(/^\/api\/history\/([^/]+)$/) ?? [];
+        if (method === 'PATCH' && isUuid(historyId)) return send(res, 200, db.revise(session, historyId, await json(req)));
         const [, id, action] = path.match(/^\/api\/intakes\/([^/]+)\/(confirm|turns)$/) ?? [];
         if (method === 'POST' && isUuid(id)) {
           if (action === 'confirm') return send(res, 200, db.confirm(session, id, await json(req)));

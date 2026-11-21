@@ -1,0 +1,217 @@
+import { randomBytes } from 'node:crypto';
+
+const account = (label, place, task, period, landmark, alias, quote) => ({
+  label, fields: { place, task, period, landmark, alias }, quote, version: 1,
+});
+
+const workerA = account('Worker A', 'Jodhpur, Rajasthan', 'Cut stone slabs', 'Two monsoons before lockdown',
+  'Behind the railway crossing', 'Raju’s stone shed', 'Lockdown se pehle, Jodhpur mein railway crossing ke pichhe slabs kaat-ta tha.');
+const comparisons = {
+  b: account('Worker B', 'Jodhpur, Rajasthan', 'Polished stone slabs', '2019', 'Beside the railway crossing',
+    'Raju’s stone shed', 'In 2019 I polished slabs in Raju’s shed beside the railway crossing in Jodhpur.'),
+  c: account('Worker C', 'Jaipur, Rajasthan', 'Cut stone slabs', null, 'Near the bus stand',
+    'Raju’s stone shed', 'Raju’s shed was by the Jaipur bus stand. I don’t remember the year.'),
+};
+
+const normalize = (value) => (value ?? '').normalize('NFKC').toLowerCase().replace(/[’']/g, '').trim();
+const localities = [['jodhpur', 'जोधपुर'], ['jaipur', 'जयपुर']];
+function locality(place) {
+  const text = normalize(place);
+  return localities.find((variants) => variants.some((item) => item === variants[0]
+    ? new RegExp('\\b' + item + '\\b').test(text) : text.includes(item)))?.[0] ?? '';
+}
+
+function landmark(value) {
+  const text = normalize(value);
+  if (/railway crossing|rail crossing|रेलवे (?:क्रॉसिंग|फाटक)|रेल फाटक/.test(text)) return 'railway crossing';
+  return text;
+}
+
+function yearRange(value) {
+  const match = normalize(value).match(/^((?:19|20)\d{2})(?:\s*[-–]\s*((?:19|20)\d{2}))?$/);
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2] ?? match[1]);
+  return start <= end ? [start, end] : null;
+}
+
+function compare(left, right) {
+  const a = left.fields;
+  const b = right.fields;
+  const aLocality = locality(a.place);
+  const bLocality = locality(b.place);
+  const samePlace = Boolean(aLocality && aLocality === bLocality);
+  const alias = Boolean(normalize(a.alias) && normalize(a.alias) === normalize(b.alias));
+  const sharedLandmark = Boolean(landmark(a.landmark) && landmark(a.landmark) === landmark(b.landmark));
+  const conflict = Boolean(aLocality && bLocality && !samePlace);
+  const aYears = yearRange(a.period);
+  const bYears = yearRange(b.period);
+  const overlap = !aYears || !bYears ? 'unknown' : aYears[0] <= bYears[1] && bYears[0] <= aYears[1] ? 'overlap' : 'separate';
+  const clues = [];
+  if (samePlace) clues.push('Same locality');
+  if (sharedLandmark) clues.push('Matching landmark phrase');
+  if (alias) clues.push('Shared name or nickname');
+  if (normalize(a.task) && normalize(a.task) === normalize(b.task)) clues.push('Similar task');
+  return { clues, overlap, conflict, eligible: samePlace && (alias || sharedLandmark),
+    show: (samePlace && (alias || sharedLandmark)) || (conflict && alias) };
+}
+
+const nextStates = {
+  draft: ['approved', 'cancelled'], approved: ['invited', 'cancelled'],
+  invited: ['responded', 'declined', 'unreachable', 'cancelled'],
+  responded: ['scheduled', 'declined', 'postponed', 'cancelled'],
+  scheduled: ['completed', 'postponed', 'cancelled'], postponed: ['scheduled', 'cancelled'],
+  unreachable: ['invited', 'cancelled'],
+};
+
+export function staffDemo(db, { toHistory, timestamp, RequestError, hash, isUuid }) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS demo_staff (
+      session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE, token_hash TEXT NOT NULL UNIQUE
+    );
+    CREATE TABLE IF NOT EXISTS demo_decisions (
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, candidate TEXT NOT NULL,
+      status TEXT NOT NULL, reason TEXT NOT NULL, version INTEGER NOT NULL, PRIMARY KEY (session_id, candidate)
+    );
+    CREATE TABLE IF NOT EXISTS demo_referrals (
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, candidate TEXT NOT NULL,
+      status TEXT NOT NULL, version INTEGER NOT NULL, PRIMARY KEY (session_id, candidate)
+    );
+    CREATE TABLE IF NOT EXISTS demo_events (
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, target TEXT NOT NULL,
+      kind TEXT NOT NULL, status TEXT NOT NULL, reason TEXT NOT NULL, actor TEXT NOT NULL,
+      at TEXT NOT NULL, operation TEXT NOT NULL, fingerprint TEXT NOT NULL,
+      PRIMARY KEY (session_id, operation)
+    );
+  `);
+
+  function transaction(write) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = write();
+      db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  function candidates(session) {
+    const decisions = new Map(db.prepare('SELECT * FROM demo_decisions WHERE session_id = ?').all(session.id).map((row) => [row.candidate, row]));
+    const referrals = new Set(db.prepare('SELECT candidate FROM demo_referrals WHERE session_id = ?').all(session.id).map((row) => row.candidate));
+    const jobs = db.prepare(`SELECT histories.*, demo_preferences.outreach FROM histories
+      JOIN intakes ON intakes.id = histories.intake_id JOIN demo_preferences ON demo_preferences.intake_id = intakes.id
+      WHERE intakes.session_id = ? AND demo_preferences.matching = 1 ORDER BY histories.rowid DESC`).all(session.id);
+    const sources = [{ id: 'sample', person: workerA, outreach: true }, ...jobs.map((row) => {
+      const history = toHistory(row);
+      return { id: history.id, person: { label: 'Demo interview', ...history, quote: Object.values(history.evidence).filter(Boolean).join(' · ') },
+        outreach: Boolean(row.outreach) };
+    })];
+
+    return sources.flatMap(({ id, person, outreach }) => Object.entries(comparisons).flatMap(([key, peer]) => {
+      const result = compare(person, peer);
+      if (!result.show) return [];
+      const candidate = id + ':' + person.version + ':' + key;
+      const decision = decisions.get(candidate);
+      return [{ id: candidate, left: person, right: peer, ...result, outreach, rulesVersion: 1,
+        status: decision?.status ?? 'waiting', reason: decision?.reason ?? '', version: decision?.version ?? 0,
+        referral: referrals.has(candidate) }];
+    }));
+  }
+
+  function getCandidate(session, id) {
+    const candidate = candidates(session).find((item) => item.id === id);
+    if (!candidate) throw new RequestError(404, 'Candidate not found or superseded.');
+    return candidate;
+  }
+
+  function action(session, id, kind, data, write) {
+    const reason = typeof data.reason === 'string' ? data.reason.trim() : '';
+    if (!isUuid(data.operation) || !Number.isSafeInteger(data.version) || typeof data.status !== 'string' || !reason || reason.length > 280) {
+      throw new RequestError(400, 'Enter a short reason and try again.');
+    }
+    const fingerprint = hash(JSON.stringify([id, kind, data.status, data.version, reason, data.healthApproval === true]));
+    return transaction(() => {
+      const previous = db.prepare('SELECT fingerprint FROM demo_events WHERE session_id = ? AND operation = ?').get(session.id, data.operation);
+      if (previous) {
+        if (previous.fingerprint !== fingerprint) throw new RequestError(409, 'This action has already been used.');
+        return { status: data.status };
+      }
+      write(reason);
+      db.prepare('INSERT INTO demo_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(session.id, id, kind, data.status, reason, 'Demo staff', timestamp(), data.operation, fingerprint);
+      return { status: data.status };
+    });
+  }
+
+  return {
+    signIn(session) {
+      const token = randomBytes(32).toString('base64url');
+      db.prepare(`INSERT INTO demo_staff VALUES (?, ?) ON CONFLICT(session_id) DO UPDATE SET token_hash = excluded.token_hash`)
+        .run(session.id, hash(token));
+      return token;
+    },
+    signedIn(session, token) {
+      return Boolean(session && /^[A-Za-z\d_-]{43}$/.test(token ?? '') &&
+        db.prepare('SELECT 1 FROM demo_staff WHERE session_id = ? AND token_hash = ?').get(session.id, hash(token)));
+    },
+    signOut(session) {
+      db.prepare('DELETE FROM demo_staff WHERE session_id = ?').run(session.id);
+    },
+    candidates,
+    decide(session, id, data) {
+      return action(session, id, 'review', data, (reason) => {
+        const candidate = getCandidate(session, id);
+        if (!['accepted', 'unresolved', 'rejected'].includes(data.status)) throw new RequestError(400, 'Choose a review decision.');
+        if (candidate.version !== data.version || candidate.referral) throw new RequestError(409, 'Refresh this candidate before making another decision.');
+        if (data.status === 'accepted' && !candidate.eligible) throw new RequestError(409, 'The confirmed locations conflict.');
+        db.prepare(`INSERT INTO demo_decisions VALUES (?, ?, ?, ?, ?) ON CONFLICT(session_id, candidate)
+          DO UPDATE SET status = excluded.status, reason = excluded.reason, version = excluded.version`)
+          .run(session.id, id, data.status, reason, candidate.version + 1);
+      });
+    },
+    referrals(session) {
+      const current = new Map(candidates(session).map((item) => [item.id, item]));
+      return db.prepare('SELECT * FROM demo_referrals WHERE session_id = ? ORDER BY rowid DESC').all(session.id).map((row) => {
+        const item = current.get(row.candidate);
+        return { id: row.candidate, label: item?.left.label ?? 'Superseded interview', status: row.status, version: row.version,
+          outreach: item?.outreach ?? false, actions: nextStates[row.status] ?? [],
+          events: db.prepare(`SELECT status, reason, actor, at FROM demo_events
+            WHERE session_id = ? AND target = ? AND kind = 'referral' ORDER BY rowid`).all(session.id, row.candidate) };
+      });
+    },
+    transition(session, id, data) {
+      return action(session, id, 'referral', data, () => {
+        const existing = db.prepare('SELECT * FROM demo_referrals WHERE session_id = ? AND candidate = ?').get(session.id, id);
+        if (!existing) {
+          const candidate = getCandidate(session, id);
+          if (data.status !== 'draft' || candidate.status !== 'accepted' || candidate.version !== data.version || !candidate.outreach) {
+            throw new RequestError(409, 'An accepted link and outreach permission are required.');
+          }
+          db.prepare('INSERT INTO demo_referrals VALUES (?, ?, ?, 1)').run(session.id, id, 'draft');
+          return;
+        }
+        if (existing.version !== data.version || !nextStates[existing.status]?.includes(data.status)) {
+          throw new RequestError(409, 'Refresh this referral before taking the next step.');
+        }
+        if (data.status !== 'cancelled') {
+          const candidate = getCandidate(session, id);
+          if (!candidate.outreach || candidate.status !== 'accepted' || (data.status === 'approved' && data.healthApproval !== true)) {
+            throw new RequestError(409, 'Check outreach permission and simulated health-team approval.');
+          }
+        }
+        db.prepare('UPDATE demo_referrals SET status = ?, version = version + 1 WHERE session_id = ? AND candidate = ?')
+          .run(data.status, session.id, id);
+      });
+    },
+    invalidate(session, historyId, version) {
+      const prefix = historyId + ':' + version + ':';
+      const results = db.prepare(`UPDATE demo_referrals SET status = 'cancelled', version = version + 1
+        WHERE session_id = ? AND candidate LIKE ? AND status NOT IN ('cancelled', 'completed', 'declined') RETURNING candidate`)
+        .all(session.id, prefix + '%');
+      for (const { candidate } of results) db.prepare('INSERT INTO demo_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(session.id, candidate, 'referral', 'cancelled', 'Worker updated the work history.', 'WorkEcho', timestamp(), 'revise:' + candidate, '');
+    },
+  };
+}

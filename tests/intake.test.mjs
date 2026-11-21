@@ -74,3 +74,72 @@ test('audio reaches a configured adapter only after voice consent and format che
   assert.deepEqual(await (await turn(allowed)).json(), { transcript: 'Jodhpur के पास' });
   assert.equal(uploads, 1);
 });
+
+test('scopes staff sessions and enforces matching consent, conflicts and referral transitions', async (t) => {
+  const send = await fixture(t);
+  const { id, cookie } = await start(send);
+  const other = await start(send);
+  const post = (path, data, owner = cookie) => send(path, { method: 'POST', cookie: owner, data });
+  const fields = { place: 'Jodhpur', task: 'Cut slabs', period: 'Two monsoons', landmark: 'Railway crossing', alias: 'Raju’s stone shed' };
+  const confirm = (intakeId, values = fields) => post('/api/intakes/' + intakeId + '/confirm', {
+    operation: randomUUID(), confirmed: true, fields: values, evidence: { ...values, place: 'Jaipur was initially heard' },
+  });
+  assert.equal((await confirm(id)).status, 200);
+  assert.equal((await send('/api/staff/matches', { cookie })).status, 401);
+  const login = await post('/api/staff/session', {});
+  const staffCookie = login.headers.get('set-cookie').split(';')[0];
+  const staff = cookie + '; ' + staffCookie;
+  const candidates = async () => (await send('/api/staff/matches', { cookie: staff })).json();
+  const referrals = async () => (await send('/api/staff/referrals', { cookie: staff })).json();
+  assert.equal((await send('/api/staff/matches', { cookie: other.cookie + '; ' + staffCookie })).status, 401);
+  assert.equal((await candidates()).length, 2);
+
+  async function addJob(outreach) {
+    const { id: intakeId } = await (await post('/api/intakes', { language: 'hi', save: true, voice: false, matching: true, outreach })).json();
+    return (await confirm(intakeId, fields)).json();
+  }
+  const personal = await addJob(false);
+  const approved = await addJob(true);
+  const all = await candidates();
+  const good = all.find((item) => item.id === approved.id + ':1:b');
+  const denied = all.find((item) => item.id === personal.id + ':1:b');
+  const misleading = all.find((item) => item.id === approved.id + ':1:c');
+  assert.equal(good.overlap, 'unknown');
+  assert.match(good.left.quote, /Jaipur was initially heard/);
+  assert.equal(good.left.fields.place, 'Jodhpur');
+  assert.equal(misleading.conflict, true);
+
+  const action = (target, operation, status, version, extra = {}) => post('/api/staff/' + target + '/' + operation,
+    { status, version, reason: 'Fictional evidence reviewed.', operation: randomUUID(), ...extra }, staff);
+  const decide = (candidate, status, version = 0) => action('matches/' + candidate, 'decision', status, version);
+  const move = (candidate, status, version, extra) => action('referrals/' + candidate, 'transition', status, version, extra);
+  assert.equal((await decide(misleading.id, 'accepted')).status, 409);
+  assert.equal((await decide(misleading.id, 'rejected')).status, 200);
+  assert.equal((await decide(misleading.id, 'unresolved')).status, 409);
+  assert.equal((await decide(denied.id, 'accepted')).status, 200);
+  assert.equal((await move(denied.id, 'draft', 1)).status, 409);
+  assert.equal((await decide(good.id, 'accepted')).status, 200);
+  assert.equal((await move(good.id, 'draft', 1)).status, 200);
+  assert.equal((await move(good.id, 'approved', 1)).status, 409);
+  assert.equal((await move(good.id, 'invited', 1)).status, 409);
+  const approval = { healthApproval: true, operation: randomUUID() };
+  assert.equal((await move(good.id, 'approved', 1, approval)).status, 200);
+  assert.equal((await move(good.id, 'approved', 1, approval)).status, 200);
+  assert.equal((await move(good.id, 'approved', 1, { ...approval, healthApproval: false })).status, 409);
+  assert.equal((await move(good.id, 'invited', 2)).status, 200);
+  assert.equal((await referrals())[0].events.length, 3);
+
+  const revision = { confirmed: true, version: 1, operation: randomUUID(), fields: { ...fields, period: '2018–2019' } };
+  const revise = (owner, data = revision) => send('/api/history/' + approved.id, { method: 'PATCH', cookie: owner, data });
+  assert.equal((await revise(other.cookie)).status, 404);
+  const corrected = await (await revise(cookie)).json();
+  assert.equal(corrected.version, 2);
+  assert.equal(corrected.evidence.period, 'Two monsoons');
+  assert.deepEqual(await (await revise(cookie)).json(), corrected);
+  assert.equal((await revise(cookie, { ...revision, operation: randomUUID() })).status, 409);
+  assert.equal((await candidates()).find((item) => item.id === approved.id + ':2:b').overlap, 'overlap');
+  assert.equal((await candidates()).some((item) => item.id === good.id), false);
+  assert.equal((await referrals())[0].status, 'cancelled');
+  assert.equal((await send('/api/session', { method: 'DELETE', cookie: staff })).status, 200);
+  assert.equal((await send('/api/staff/referrals', { cookie: staff })).status, 401);
+});

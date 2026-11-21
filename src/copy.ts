@@ -2,11 +2,19 @@ export const keys = ['place', 'task', 'period', 'landmark', 'alias'] as const;
 export type Field = typeof keys[number];
 export type Language = 'en' | 'hi';
 export type Entry = Record<Field, string | null>;
-export type SavedEntry = { id: string; fields: Entry; confirmedAt: string };
+export type SavedEntry = { id: string; fields: Entry; evidence: Entry; confirmedAt: string; version: number };
 export const blank: Entry = { place: null, task: null, period: null, landmark: null, alias: null };
 
 export const copy = {
   en: {
+    permissions: 'Choose what you share', matchConsent: 'Allow demo staff to compare this fictional history.',
+    outreachConsent: 'Allow simulated follow-up for this history.', privacyTitle: 'Your choices stay with the record',
+    privacy: 'Your history stays in this demo session. Demo staff see it only if you allow comparison. No real messages are sent.',
+    how: 'Hear how it works', staff: 'Staff workspace', said: 'What you said', proposed: 'Proposed record',
+    confirmed: 'Confirmed by you', correct: 'Correct this entry', export: 'Export history',
+    exportWarning: 'A copy will stay on this device after you sign out. Only download on a device you trust.',
+    download: 'Download text summary', cancel: 'Cancel', stale: 'This history changed. Open the current entry before editing it.',
+    changed: 'Updated. Check this detail before saving.',
     home: 'Your work history', intro: 'Tell us where you worked, what you did, and roughly when. You can check every answer before you save it.',
     fictional: 'Demo only. Use fictional work details.', language: 'Language', savingConsent: 'I agree to save this fictional work history for this demo session.',
     voiceConsent: 'Send my recorded answers to Sarvam for transcription.', noVoice: 'Recording is unavailable here. You can type or try a fictional answer.',
@@ -30,6 +38,14 @@ export const copy = {
     },
   },
   hi: {
+    permissions: 'तय करें कि क्या साझा करना है', matchConsent: 'इस काल्पनिक रिकॉर्ड की तुलना करने की अनुमति दें।',
+    outreachConsent: 'इस रिकॉर्ड के लिए संपर्क का अभ्यास करने की अनुमति दें।', privacyTitle: 'आपकी पसंद रिकॉर्ड के साथ रहती है',
+    privacy: 'आपका रिकॉर्ड इस डेमो सत्र में रहता है। आपकी अनुमति पर ही डेमो कर्मचारी तुलना कर सकते हैं। कोई असली संदेश नहीं भेजा जाता।',
+    how: 'सुनें कि यह कैसे काम करता है', staff: 'कर्मचारी कार्यक्षेत्र', said: 'आपने क्या कहा', proposed: 'प्रस्तावित रिकॉर्ड',
+    confirmed: 'आपने पुष्टि की', correct: 'इस रिकॉर्ड को सुधारें', export: 'रिकॉर्ड डाउनलोड करें',
+    exportWarning: 'बाहर निकलने के बाद भी इस डिवाइस पर एक कॉपी रहेगी। अपने भरोसे के डिवाइस पर ही डाउनलोड करें।',
+    download: 'सारांश डाउनलोड करें', cancel: 'रद्द करें', stale: 'रिकॉर्ड बदल गया है। सुधारने से पहले नया रिकॉर्ड खोलें।',
+    changed: 'बदलाव हुआ। सहेजने से पहले इसकी जाँच करें।',
     home: 'आपके काम का रिकॉर्ड', intro: 'बताइए आपने कहाँ, क्या और लगभग कब काम किया। सहेजने से पहले हर जवाब जाँच सकते हैं।',
     fictional: 'यह डेमो है। केवल काल्पनिक जानकारी दें।', language: 'भाषा', savingConsent: 'मैं इस डेमो सत्र में काल्पनिक काम का रिकॉर्ड सहेजने के लिए सहमत हूँ।',
     voiceConsent: 'मेरे बोले हुए जवाब लिखने के लिए Sarvam को भेजें।', noVoice: 'यहाँ रिकॉर्डिंग उपलब्ध नहीं है। जवाब लिखें या काल्पनिक उदाहरण आज़माएँ।',

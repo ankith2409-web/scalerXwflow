@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ArrowLeft, ArrowRight, AudioLines, Check, Mic, Square, Volume2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, AudioLines, Check, Download, GitCompare, Mic, ShieldCheck, Square, Volume2 } from 'lucide-react';
 import { blank, copy, keys, type Entry, type Field, type Labels, type Language, type SavedEntry } from './copy';
 import { jsonPost, request, usePlayback, useRecorder } from './voice';
+import { StaffWorkspace } from './staff';
 import './style.css';
 
 type Screen = 'home' | 'intake' | 'review' | 'history' | 'saved';
@@ -17,12 +18,18 @@ function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [saveConsent, setSaveConsent] = useState(false);
   const [voiceConsent, setVoiceConsent] = useState(false);
+  const [matching, setMatching] = useState(false);
+  const [outreach, setOutreach] = useState(false);
   const [intake, setIntake] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [entry, setEntry] = useState<Entry>(blank);
+  const [evidence, setEvidence] = useState<Entry>(blank);
   const [saved, setSaved] = useState<SavedEntry[]>([]);
+  const [revision, setRevision] = useState<SavedEntry | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const [editing, setEditing] = useState<Field | null>(null);
   const [change, setChange] = useState('');
+  const [changed, setChanged] = useState<Field | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const operation = useRef<string | null>(null);
@@ -44,7 +51,7 @@ function App() {
       else setScreen('home');
     };
     window.addEventListener('popstate', pop);
-    if (location.pathname === '/intake') history.replaceState(null, '', '/');
+    if (location.pathname.startsWith('/intake')) history.replaceState(null, '', '/');
     refreshSession().catch(() => setError('unavailable'));
     return () => window.removeEventListener('popstate', pop);
   }, []);
@@ -74,7 +81,7 @@ function App() {
 
   function go(next: Screen) {
     playback.stop();
-    const path = next === 'home' ? '/' : next === 'history' || next === 'saved' ? historyPath : '/intake';
+    const path = next === 'home' ? '/' : next === 'history' || next === 'saved' ? historyPath : next === 'review' ? '/intake/review' : '/intake';
     if (location.pathname !== path) history.pushState(null, '', path);
     setError('');
     setScreen(next);
@@ -85,11 +92,14 @@ function App() {
     setError('');
     try {
       const { id } = await request<{ id: string }>('/api/intakes', jsonPost({
-        language, save: saveConsent, voice: Boolean(session?.voiceAvailable && voiceConsent),
+        language, save: saveConsent, voice: Boolean(session?.voiceAvailable && voiceConsent), matching, outreach,
       }));
       setSession((s) => ({ active: true, voiceAvailable: s?.voiceAvailable ?? false }));
       setIntake(id);
       setEntry(blank);
+      setEvidence(blank);
+      setRevision(null);
+      setChanged(null);
       setStep(0);
       operation.current = null;
       go('intake');
@@ -101,17 +111,25 @@ function App() {
   }
 
   async function confirm() {
-    if (!intake) return;
+    if (!intake && !revision) return;
     setBusy(true);
     setError('');
     operation.current ??= crypto.randomUUID();
     try {
-      const item = await request<SavedEntry>('/api/intakes/' + intake + '/confirm', jsonPost({
-        operation: operation.current, confirmed: true, fields: entry,
-      }));
+      const path = revision ? '/api/history/' + revision.id : '/api/intakes/' + intake + '/confirm';
+      const payload = { operation: operation.current, confirmed: true, fields: entry,
+        ...(revision ? { version: revision.version } : { evidence }) };
+      const item = await request<SavedEntry>(path, { ...jsonPost(payload), method: revision ? 'PATCH' : 'POST' });
       setSaved((previous) => [item, ...previous.filter(({ id }) => id !== item.id)]);
+      setRevision(null);
       go('saved');
     } catch (failure) {
+      if (failure instanceof Error && revision && ['409', '404'].includes(failure.message)) {
+        setRevision(null);
+        go('history');
+        setError('stale');
+        return;
+      }
       if (failure instanceof Error && ['401', '404'].includes(failure.message)) {
         setSession((s) => s && { ...s, active: false });
         go('home');
@@ -131,8 +149,13 @@ function App() {
       setSaved([]);
       setIntake(null);
       setEntry(blank);
+      setEvidence(blank);
       setSaveConsent(false);
       setVoiceConsent(false);
+      setMatching(false);
+      setOutreach(false);
+      setRevision(null);
+      setExportOpen(false);
       setEditing(null);
       setChange('');
       operation.current = null;
@@ -144,16 +167,38 @@ function App() {
     }
   }
 
-  function answer(value: string | null) {
+  function answer(value: string | null, source = value) {
     playback.stop();
     setEntry((previous) => ({ ...previous, [keys[step]]: value }));
+    setEvidence((previous) => ({ ...previous, [keys[step]]: source }));
     if (step + 1 === keys.length) go('review');
     else setStep((previous) => previous + 1);
   }
 
+  function reopen(item: SavedEntry) {
+    setRevision(item);
+    setEntry(item.fields);
+    setEvidence(item.evidence);
+    setEditing(null);
+    setChanged(null);
+    operation.current = null;
+    go('review');
+  }
+
+  function downloadHistory() {
+    const report = saved.map((item) => summary(item.fields)).join('\n\n');
+    const url = URL.createObjectURL(new Blob([t.fictional + '\n\n' + report], { type: 'text/plain;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'workecho-demo-history.txt';
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setExportOpen(false);
+  }
+
   const summary = (item: Entry) => keys.map((key) => t.field[key][0] + '. ' + (item[key] ?? t.missing)).join('. ');
   const play = (value: string) => playback.playing ? playback.stop() : playback.speak(value, () => setError('speechError'));
-  const voiceAllowed = Boolean(intake && voiceConsent && session?.voiceAvailable);
+  const voiceAllowed = Boolean(!revision && intake && voiceConsent && session?.voiceAvailable);
   const mainTitle = screen === 'home' ? t.home : screen === 'review' ? t.check
     : screen === 'saved' ? t.saved : t.history;
 
@@ -174,7 +219,7 @@ function App() {
           </div>
         </div>
       </header>
-      <main className="main">
+      <main className={screen === 'home' ? 'main home-main' : 'main'}>
         {screen !== 'intake' && (
           <>
             <p className="context">{t.fictional}</p>
@@ -184,15 +229,21 @@ function App() {
         {screen === 'home' && (
           <>
             <p className="lede">{t.intro}</p>
-            <div className="paper consent">
+            <div className="home-grid"><div className="paper consent">
+              <h2>{t.permissions}</h2>
               <label><input type="checkbox" checked={saveConsent} onChange={(e) => setSaveConsent(e.target.checked)} />{t.savingConsent}</label>
               {session?.voiceAvailable ? (
                 <label><input type="checkbox" checked={voiceConsent} onChange={(e) => setVoiceConsent(e.target.checked)} />{t.voiceConsent}</label>
               ) : <p className="muted">{t.noVoice}</p>}
+              <label><input type="checkbox" checked={matching} onChange={(e) => setMatching(e.target.checked)} />{t.matchConsent}</label>
+              <label><input type="checkbox" checked={outreach} onChange={(e) => setOutreach(e.target.checked)} />{t.outreachConsent}</label>
               <button className="primary" disabled={busy || !saveConsent || !session} onClick={start}>{busy ? t.loading : t.start}<ArrowRight size={19} aria-hidden="true" /></button>
-            </div>
+            </div><aside className="paper privacy-card"><ShieldCheck size={26} aria-hidden="true" /><h2>{t.privacyTitle}</h2><p>{t.privacy}</p>
+              <button className="text-link listen" onClick={() => play(t.intro + ' ' + t.privacy)}><Volume2 size={19} aria-hidden="true" />{playback.playing ? t.stopPlayback : t.how}</button>
+            </aside></div>
             <div className="action-row">
               <a href={historyPath} className="text-link" onClick={(event) => { event.preventDefault(); go('history'); }}>{t.history}</a>
+              <a href="/staff/review" className="text-link"><GitCompare size={18} aria-hidden="true" />{t.staff}</a>
               {session?.active && <button className="quiet" type="button" disabled={busy} onClick={signOut}>{t.signOut}</button>}
             </div>
             {session?.active && <p className="muted">{t.signOutDetail}</p>}
@@ -207,10 +258,13 @@ function App() {
           <>
             <p className="lede">{t.checkHelp}</p>
             <button className="text-link listen" disabled={repairBusy} onClick={() => play(summary(entry))}><Volume2 size={19} aria-hidden="true" />{playback.playing ? t.stopPlayback : t.readBack}</button>
-            <div className="paper">
+            <div className="paper review-paper">
+              <div className="review-labels" aria-hidden="true"><strong>{t.said}</strong><strong>{t.proposed}</strong></div>
               {keys.map((field) => (
                 <div className="detail" key={field}>
-                  <div><div className="field-label">{t.field[field][0]}</div><div>{entry[field] ?? t.missing}</div></div>
+                  <div className="review-source"><div className="field-label">{t.said} · {t.field[field][0]}</div><div>{evidence[field] ?? t.missing}</div></div>
+                  <div className="review-value"><div className="field-label">{t.proposed} · {t.field[field][0]}</div><div>{entry[field] ?? t.missing}</div>
+                    {changed === field && <div className="field-label" role="status">{t.changed}</div>}</div>
                   {editing !== field && <button className="quiet" disabled={busy || Boolean(editing) || Boolean(operation.current)} aria-label={t.change + ' ' + t.field[field][0]}
                     onClick={() => { playback.stop(); setEditing(field); setChange(entry[field] ?? ''); setRepairVoice(false); }}>{t.change}</button>}
                   {editing === field && (
@@ -220,7 +274,8 @@ function App() {
                       const corrected = change.trim() || null;
                       setEntry((previous) => ({ ...previous, [field]: corrected }));
                       setEditing(null);
-                      if (corrected) playback.speak(t.field[field][0] + '. ' + corrected, () => setError('speechError'));
+                      setChanged(field);
+                      playback.speak(t.field[field][0] + '. ' + (corrected ?? t.missing), () => setError('speechError'));
                     }}>
                       <label className="sr-only" htmlFor={'change-' + field}>{t.field[field][0]}</label>
                       <textarea id={'change-' + field} autoFocus maxLength={500} value={change} onChange={(e) => setChange(e.target.value)} />
@@ -237,7 +292,7 @@ function App() {
               <button className="primary" disabled={busy || Boolean(editing) || !Object.values(entry).some(Boolean)} onClick={confirm}>
                 <Check size={19} aria-hidden="true" />{busy ? t.savePending : operation.current ? t.retrySave : t.save}
               </button>
-              <button className="quiet" disabled={busy || Boolean(operation.current)} onClick={() => go('intake')}><ArrowLeft size={18} aria-hidden="true" />{t.back}</button>
+              <button className="quiet" disabled={busy || Boolean(operation.current)} onClick={() => { setEditing(null); go(revision ? 'history' : 'intake'); }}><ArrowLeft size={18} aria-hidden="true" />{t.back}</button>
             </div>
           </>
         )}
@@ -246,21 +301,25 @@ function App() {
             <p className="lede">{t.savedHelp}</p>
             {saved[0] && <HistoryCard item={saved[0]} t={t} play={play} playing={playback.playing} />}
             <div className="action-row"><button className="primary" onClick={() => go('history')}>{t.history}<ArrowRight size={19} aria-hidden="true" /></button>
-              <button className="quiet" onClick={start} disabled={busy}>{t.add}</button></div>
+              <button className="quiet" onClick={saveConsent ? start : () => go('home')} disabled={busy}>{t.add}</button></div>
           </>
         )}
         {screen === 'history' && (
           <>
-            {busy ? <p role="status">{t.loading}</p> : saved.length ? saved.map((item) => <HistoryCard key={item.id} item={item} t={t} play={play} playing={playback.playing} />)
+            {busy ? <p role="status">{t.loading}</p> : saved.length ? saved.map((item) => <HistoryCard key={item.id} item={item} t={t} play={play} playing={playback.playing} correct={() => reopen(item)} />)
               : <p>{t.empty}</p>}
             <div className="action-row">
               <button className="primary" onClick={() => go('home')}>{t.new}<ArrowRight size={19} aria-hidden="true" /></button>
+              {!!saved.length && <button className="quiet" onClick={() => setExportOpen(true)}><Download size={18} aria-hidden="true" />{t.export}</button>}
               {session?.active && <button className="quiet" onClick={signOut} disabled={busy}>{t.signOut}</button>}
             </div>
             {session?.active && <p className="muted">{t.signOutDetail}</p>}
+            {exportOpen && !!saved.length && <div className="notice"><p>{t.exportWarning}</p><div className="action-row">
+              <button className="primary" onClick={downloadHistory}>{t.download}</button><button className="quiet" onClick={() => setExportOpen(false)}>{t.cancel}</button>
+            </div></div>}
           </>
         )}
-        {error && <p className="notice" role="alert">{error === 'speechError' ? t.speechError : t.unavailable}</p>}
+        {error && <p className="notice" role="alert">{error === 'speechError' ? t.speechError : error === 'stale' ? t.stale : t.unavailable}</p>}
       </main>
     </div>
   );
@@ -288,7 +347,7 @@ function CorrectionMic({ intake, labels, onAnswer, onError, onStart, onBusy }: {
 function Question({ field, labels: t, current, intake, voiceAllowed, progress, titleRef, playing, play, saveAnswer, back }: {
   field: Field; labels: Labels; current: string | null; intake: string; voiceAllowed: boolean; progress: number;
   titleRef: React.RefObject<HTMLHeadingElement | null>; playing: boolean; play: (value: string) => void;
-  saveAnswer: (value: string | null) => void; back: () => void;
+  saveAnswer: (value: string | null, source?: string | null) => void; back: () => void;
 }) {
   const [value, setValue] = useState(current ?? '');
   const [type, setType] = useState(!voiceAllowed || Boolean(current));
@@ -306,7 +365,7 @@ function Question({ field, labels: t, current, intake, voiceAllowed, progress, t
       <progress className="progress" aria-label={t.job} max={keys.length} value={progress} />
       <h1 ref={titleRef} tabIndex={-1}>{question}</h1>
       <button className="text-link listen" onClick={() => play(question)} disabled={active}><Volume2 size={19} aria-hidden="true" />{playing ? t.stopPlayback : t.replay}</button>
-      <form onSubmit={(event) => { event.preventDefault(); if (!active && value.trim()) saveAnswer(value.trim()); }}>
+      <form onSubmit={(event) => { event.preventDefault(); if (!active && value.trim()) saveAnswer(value.trim(), heard || value.trim()); }}>
         {origin && <div className="paper heard" role="status"><div className="field-label">{origin === 'mic' ? t.transcript : t.sample}</div><div>{heard}</div></div>}
         {type && <div className="answer">
           <label htmlFor="answer">{t.answer}</label>
@@ -341,14 +400,18 @@ function Question({ field, labels: t, current, intake, voiceAllowed, progress, t
   );
 }
 
-function HistoryCard({ item, t, play, playing }: { item: SavedEntry; t: Labels; play: (value: string) => void; playing: boolean }) {
+function HistoryCard({ item, t, play, playing, correct }: { item: SavedEntry; t: Labels; play: (value: string) => void; playing: boolean; correct?: () => void }) {
   return <article className="paper history-card">
     <h2>{item.fields.place ?? item.fields.task ?? t.job}</h2>
+    <p className="field-label">{t.confirmed} · <time dateTime={item.confirmedAt}>{new Date(item.confirmedAt).toLocaleDateString(document.documentElement.lang)}</time></p>
     <dl>{keys.map((field) => <div key={field}><dt>{t.field[field][0]}</dt><dd>{item.fields[field] ?? t.missing}</dd></div>)}</dl>
+    <details><summary>{t.said}</summary><dl>{keys.map((field) => <div key={field}><dt>{t.field[field][0]}</dt><dd>{item.evidence[field] ?? t.missing}</dd></div>)}</dl></details>
     <button className="text-link listen" onClick={() => play(keys.map((field) => t.field[field][0] + '. ' + (item.fields[field] ?? t.missing)).join('. '))}>
       <Volume2 size={19} aria-hidden="true" />{playing ? t.stopPlayback : t.readBack}
     </button>
+    {correct && <button className="quiet" onClick={correct}>{t.correct}</button>}
   </article>;
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(location.pathname.startsWith('/staff/')
+  ? <StaffWorkspace referralsPage={location.pathname === '/staff/referrals'} /> : <App />);
