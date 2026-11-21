@@ -30,7 +30,7 @@ try {
   // Give Chromium’s synthetic recording enough time to produce WebM frames.
   await page.waitForTimeout(450);
   await page.getByRole('button', { name: 'Stop recording', exact: true }).click();
-  await page.getByText('Jaipur के पास', { exact: true }).waitFor();
+  await page.getByRole('status').getByText('Jaipur के पास', { exact: true }).waitFor();
   assert.ok(audioPosted);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 360);
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -66,3 +66,4 @@ try {
   await browser?.close();
   server.close();
 }
+
