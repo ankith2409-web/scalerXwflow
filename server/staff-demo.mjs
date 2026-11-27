@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { compare } from './workplace-rules.mjs';
+import {fictionalWorkers,fictionalSummary} from './fictional-workers.mjs';
 export { compare } from './workplace-rules.mjs';
 
 const account = (label, place, task, period, landmark, alias, quote) => ({
@@ -63,10 +64,10 @@ export function staffDemo(db, { toHistory, timestamp, RequestError, hash, isUuid
       JOIN intakes ON intakes.id = histories.intake_id JOIN demo_preferences ON demo_preferences.intake_id = intakes.id
       WHERE intakes.session_id = ? AND demo_preferences.matching = 1 ORDER BY histories.rowid DESC`).all(session.id)
       .map((row) => fromRow(row, 'Demo interview'));
-    const sources = session.workspace ? jobs : [{ id: 'sample', person: workerA, outreach: true }, ...jobs];
+    const sources = session.workspace ? jobs : [{ id: 'sample', person: workerA, outreach: true }, ...fictionalWorkers, ...jobs];
     return sources.flatMap(({ id, person, outreach, owner }, index) => {
       const peers = session.workspace ? sources.slice(index + 1).filter((peer) => peer.owner !== owner)
-        .map((peer) => [peer.id + ':' + peer.person.version, peer.person]) : Object.entries(comparisons);
+        .map((peer) => [peer.id + ':' + peer.person.version, peer.person]) : [...Object.entries(comparisons),...(id==='sample'||id.startsWith('fiction-')?sources.slice(index+1).filter(peer=>peer.id.startsWith('fiction-')):fictionalWorkers).map(peer=>[peer.id,peer.person])];
       return peers.flatMap(([key, peer]) => {
       const result = compare(person, peer);
       if (!result.show) return [];
@@ -140,6 +141,7 @@ export function staffDemo(db, { toHistory, timestamp, RequestError, hash, isUuid
       db.prepare('DELETE FROM demo_staff WHERE session_id = ?').run(session.id);
     },
     candidates,
+    summary:fictionalSummary,
     records(session) {
       const referrals = new Set(db.prepare('SELECT candidate FROM demo_referrals WHERE session_id = ?').all(session.id).map((row) => row.candidate));
       const sources=session.workspace?workspaceSources():db.prepare(`SELECT h.*,i.session_id AS owner,p.matching,p.outreach FROM histories h JOIN intakes i ON i.id=h.intake_id JOIN demo_preferences p ON p.intake_id=i.id WHERE i.session_id=? AND (p.matching=1 OR p.outreach=1) ORDER BY h.id`).all(session.id).map(row=>fromRow(row,'Fictional worker'));
