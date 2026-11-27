@@ -21,6 +21,7 @@ const result=await call('/api/demo/intakes/'+job.id+'/extract','POST',{transcrip
 const payload={confirmed:true,operation:randomUUID(),fields:result.fields,evidence:result.evidence,source,permissions:{matching:true,outreach:true}};
 const saved=await call('/api/demo/intakes/'+job.id+'/confirm','POST',payload);assert.equal(saved.permissions.matching,true);assert.equal(saved.source.text,source.text);
 await call('/api/demo/staff/session','POST');const overview=await call('/api/demo/staff/overview');assert.ok(overview.matches.length>0);
+assert.equal(overview.fictional.workers,43);assert.ok(overview.matches.length>=100);
 const featurePath='/api/demo/features/history/'+saved.id;
 const directory=await call('/api/demo/features/workplaces','POST',{id:randomUUID(),version:0,data:{name:'Fictional smoke-test workplace',aliases:['Synthetic yard'],locality:'Fictional test area',status:'reviewed',reason:'Fictional hosted smoke-test review.',location:null}});
 await call(featurePath+'/details','PATCH',{version:0,historyVersion:1,data:{startYear:2015,endYear:2017,certainty:'approximate',ongoing:false,location:null}});

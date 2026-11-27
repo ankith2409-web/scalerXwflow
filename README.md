@@ -50,6 +50,8 @@ Open `/?demo=1` (and `/staff/review?demo=1`) for an isolated fictional worker/st
 
 ## Development
 
+The fictional staff demo includes 43 synthetic workers across 10 workplace scenarios in Bengaluru, Mysuru, Tumakuru, Jodhpur and Jaipur. Search comparison cards by person, city, task or workplace. Example map links show approximate illustrative areas, not real employer addresses. Cases include overlapping/separate/unknown years, missing details, declined follow-up and same-name workplaces in conflicting cities. Fixtures are generated only in the fictional demo and never seed real worker records.
+
 Use Node.js 24.12 or newer. Run `npm ci`, `npm run build`, then `npm start`. Local Node startup prints http://127.0.0.1:3002 or the next available port.
 
 `npm test` checks ownership, consent, conflicts, idempotency, referrals, evidence and OAuth using a provider double. `node tests/chromium.browser.mjs` checks the rebuilt interface when PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH points to Chromium. `npm run test:cloud` checks production SQL with PGlite when PGLITE_ROOT points to @electric-sql/pglite 0.3.16.

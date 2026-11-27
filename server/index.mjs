@@ -166,7 +166,7 @@ export function createRequestHandler(db, {
             const rows=db.demo.records(scope).filter(row=>Object.values(row.fields).filter(Boolean).join(' ').toLocaleLowerCase().includes(query.toLocaleLowerCase()));
             return send(res,200,{records:rows.slice(page*size,(page+1)*size),page,pageSize:size,total:rows.length});
           }
-          if (path === '/api/staff/overview' && method === 'GET') return send(res, 200, { records: workspace ? db.demo.records(scope) : [], matches: db.demo.candidates(scope), referrals: db.demo.referrals(scope), window: null });
+          if (path === '/api/staff/overview' && method === 'GET') return send(res, 200, { records: workspace ? db.demo.records(scope) : [], matches: db.demo.candidates(scope), referrals: db.demo.referrals(scope), window: null, ...(!workspace?{fictional:db.demo.summary}:{}) });
           if (workspace && method === 'GET' && path === '/api/staff/records') return send(res, 200, db.demo.records(scope));
           if (method === 'GET' && path === '/api/staff/matches') return send(res, 200, db.demo.candidates(scope));
           if (method === 'GET' && path === '/api/staff/referrals') return send(res, 200, db.demo.referrals(scope));

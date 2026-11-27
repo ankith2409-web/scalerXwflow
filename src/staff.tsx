@@ -6,7 +6,7 @@ import { Brand, Dialog, Skeleton, Spinner } from './ui';
 const StaffFeatures=lazy(()=>import('./features/StaffFeatures').then(m=>({default:m.StaffFeatures})));
 const StaffRecordExtras=lazy(()=>import('./features/StaffFeatures').then(m=>({default:m.StaffRecordExtras})));
 
-type Account = { label: string; fields: Entry; quote: string };
+type Account = { label: string; fields: Entry; quote: string; location?:{lat:number;lon:number;illustrative:boolean} };
 type RecordItem = Account & { id: string; version: number; outreach: boolean; matching: boolean; referral: boolean };
 type Candidate = { id: string; left: Account; right: Account; status: string; version: number; reason: string;
   outreach: boolean; eligible: boolean; conflict: boolean; overlap: string; clues: string[]; referral: boolean; rulesVersion: number; semanticSimilarity?: number };
@@ -38,6 +38,7 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
   const [matches, setMatches] = useState<Candidate[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [filter, setFilter] = useState('all');
+  const [peopleSearch,setPeopleSearch]=useState(''),[fictional,setFictional]=useState<{workers:number;workplaceScenarios:number}|null>(null);
   const [selection, setSelection] = useState('');
   const [busy, setBusy] = useState(true);
   const [resetOpen, setResetOpen] = useState(false);
@@ -51,7 +52,8 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
   const demoSuffix = new URLSearchParams(location.search).get('demo') === '1' ? '?demo=1' : '';
 
   async function load(local = workspace,nextPage=page,nextSearch=search) {
-    const [overview,result] = await Promise.all([request<{ matches: Candidate[]; referrals: Referral[]; records: RecordItem[] }>('/api/staff/overview'),request<{records:RecordItem[];total:number}>('/api/staff/search?query='+encodeURIComponent(nextSearch)+'&page='+nextPage)]);
+    const [overview,result] = await Promise.all([request<{ matches: Candidate[]; referrals: Referral[]; records: RecordItem[];fictional?:{workers:number;workplaceScenarios:number} }>('/api/staff/overview'),request<{records:RecordItem[];total:number}>('/api/staff/search?query='+encodeURIComponent(nextSearch)+'&page='+nextPage)]);
+    setFictional(overview.fictional??null);
     setMatches(overview.matches);
     setReferrals(overview.referrals);
     setRecords(result?.records??[]);setTotal(result?.total??0);setPage(nextPage);setSearch(nextSearch);
@@ -111,7 +113,7 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
     setReferralsPage(next);
   }
   const queue = matches.filter((item) => filter === 'all' || item.status === filter ||
-    (filter === 'reviewed' && ['accepted', 'rejected'].includes(item.status)));
+    (filter === 'reviewed' && ['accepted', 'rejected'].includes(item.status))).filter(item=>[item.left.label,item.right.label,...Object.values(item.left.fields),...Object.values(item.right.fields)].filter(Boolean).join(' ').toLocaleLowerCase().includes(peopleSearch.trim().toLocaleLowerCase()));
   const current = queue.find((item) => item.id === selection) ?? queue[0];
   const referral = referrals.find((item) => item.id === selection) ?? referrals[0];
   const record = records.find((item) => item.id === recordId) ?? records[0];
@@ -193,6 +195,8 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
         </div>}
         {active && !referralsPage && <div className="staff-grid">
           <section className="paper queue"><h2>Review queue</h2>
+            {fictional&&<p className="muted">{fictional.workers} fictional workers · {fictional.workplaceScenarios} workplace scenarios. Names, accounts and map areas are illustrative.</p>}
+            <label htmlFor="people-search" className="field-label">Find a person, locality, task or workplace</label><input id="people-search" className="line-input" maxLength={100} value={peopleSearch} onChange={e=>setPeopleSearch(e.target.value)} placeholder="For example: Meera, Mysuru, foundry"/><p className="muted">{queue.length} comparisons in this view</p>
             <label htmlFor="review-filter" className="field-label">Show candidates</label>
             <select id="review-filter" value={filter} onChange={(event) => setFilter(event.target.value)}>
               <option value="all">All candidates</option><option value="waiting">Needs review</option><option value="unresolved">Unresolved</option><option value="reviewed">Reviewed</option>
@@ -275,6 +279,7 @@ function AccountCard({ item }: { item: Account }) {
   return <article className="evidence-card"><h3>{item.label}</h3><p className="field-label">Confirmed account</p>
     <blockquote>“<bdi>{item.quote}</bdi>”</blockquote>
     <dl>{keys.map((key) => <div key={key}><dt>{fieldLabels[key]}</dt><dd><bdi>{item.fields[key] ?? 'Unknown'}</bdi></dd></div>)}</dl>
+    {item.location?.illustrative&&<p><a href={'https://www.openstreetmap.org/?mlat='+item.location.lat+'&mlon='+item.location.lon+'#map=13/'+item.location.lat+'/'+item.location.lon} target="_blank" rel="noreferrer">View illustrative area on map</a><small className="muted"> Approximate example area; not an actual employer address.</small></p>}
   </article>;
 }
 

@@ -164,7 +164,8 @@ test('scopes staff sessions and enforces matching consent, conflicts and referra
   const candidates = async () => (await send('/api/staff/matches', { cookie: staff })).json();
   const referrals = async () => (await send('/api/staff/referrals', { cookie: staff })).json();
   assert.equal((await send('/api/staff/matches', { cookie: other.cookie + '; ' + staffCookie })).status, 401);
-  assert.equal((await candidates()).length, 2);
+  assert.equal((await candidates()).filter(item=>item.id.startsWith('sample:')).length, 2);
+  assert.equal((await candidates()).some(item=>item.id.startsWith(id+':')),false);
 
   async function addJob(outreach) {
     const { id: intakeId } = await (await post('/api/intakes', { language: 'hi', save: true, voice: false, matching: true, outreach })).json();
