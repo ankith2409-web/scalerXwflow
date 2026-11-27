@@ -246,6 +246,7 @@ export function openStore(filename, demoSnapshot) {
           WHERE histories.id = ? AND intakes.session_id = ?`).get(historyId, session.id);
         if (!row) throw new RequestError(404, 'History not found.');
         db.prepare('UPDATE demo_preferences SET matching = 0, outreach = 0 WHERE intake_id = ?').run(row.intake_id);
+        demo.invalidate(session, historyId, toHistory(row).version, 'Worker withdrew sharing permission.');
         const staff = workspace.staffScope();
         if (staff) demo.invalidate(staff, historyId, toHistory(row).version, 'Worker withdrew sharing permission.');
         db.exec('COMMIT');

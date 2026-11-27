@@ -160,7 +160,7 @@ export function createRequestHandler(db, {
         }
         if (path === '/api/history' && method === 'GET') return send(res, 200, db.history(session));
         const [, sharingId] = path.match(/^\/api\/history\/([^/]+)\/sharing$/) ?? [];
-        if (workspace && method === 'DELETE' && isUuid(sharingId)) return send(res, 200, db.stopSharing(session, sharingId));
+        if (method === 'DELETE' && isUuid(sharingId)) return send(res, 200, db.stopSharing(session, sharingId));
         const [, historyId] = path.match(/^\/api\/history\/([^/]+)$/) ?? [];
         if (method === 'PATCH' && isUuid(historyId)) return send(res, 200, db.revise(session, historyId, await json(req)));
         const [, id, action] = path.match(/^\/api\/intakes\/([^/]+)\/(confirm|turns|extract|translate)$/) ?? [];
