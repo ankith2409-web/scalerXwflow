@@ -54,7 +54,6 @@ jobs:
         if: always()
         run: docker compose down
   hosted-demo:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: [application, docker]
     runs-on: ubuntu-24.04
     timeout-minutes: 3
