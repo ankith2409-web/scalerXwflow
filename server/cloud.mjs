@@ -201,11 +201,11 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
       if (intake && uuid(intake[1]) && method==='POST') {
         const current=await rpc('intake_get',worker,{id:intake[1]});
         if(intake[2]==='extract') {
-          const {transcript,allowAI}=await json(request); await rpc('reserve',worker);
+          const {transcript,allowAI}=await json(request); if(allowAI===true&&aiKey)await rpc('reserve',worker);
           return respond(await extractAccount(transcript,{key:allowAI===true?aiKey:'',fetcher}));
         }
         if(intake[2]==='translate') {
-          const {fields,language,allowAI}=await json(request); await rpc('reserve',worker);
+          const {fields,language,allowAI}=await json(request); if(allowAI===true&&aiKey)await rpc('reserve',worker);
           return respond(await translateReview(fields,language,{key:allowAI===true?aiKey:'',fetcher}));
         }
         if(intake[2]==='turns') {

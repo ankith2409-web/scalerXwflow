@@ -1,0 +1,19 @@
+name: Wispr public preflight
+on:
+  pull_request:
+    paths: ['server/wispr.mjs', 'tests/wispr.preflight.mjs', '.github/workflows/wispr-preflight.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: node tests/wispr.preflight.mjs

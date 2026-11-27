@@ -61,3 +61,15 @@ test('cloud requests enforce origin, ownership, confirmation and server-side sta
   assert.equal((await req('/api/intakes/00000000-0000-0000-0000-000000000001/confirm','POST',{confirmed:false,fields:{place:'Jodhpur',task:null,period:null,landmark:null,alias:null}})).status,400);
   assert.equal(calls.some(x=>x.action==='confirm'),false);
 });
+
+test('keyless suggestions do not consume the paid provider budget',async()=>{
+  const id='00000000-0000-0000-0000-000000000001';
+  for(const [aiKey,allowAI,expected] of [['',false,0],['',true,0],['test',false,0],['test',true,1]]){
+    let reserved=0,providerCalls=0;
+    const handler=createCloudHandler({origin:'https://workecho.test',aiKey,rpc:async(action,credential)=>{
+      assert.equal(credential,'worker');if(action==='intake_get')return {id};if(action==='reserve'){reserved++;return {}; }throw Error('Unexpected RPC '+action);
+    },fetcher:async()=>{providerCalls++;return Response.json({choices:[{message:{content:JSON.stringify({fields:{place:'Jodhpur',task:null,period:null,landmark:null,alias:null},language:'en'})}}]});}});
+    const response=await handler(new Request('https://workecho.test/api/intakes/'+id+'/extract',{method:'POST',headers:{origin:'https://workecho.test',cookie:'we_cloud_worker=worker','content-type':'application/json'},body:JSON.stringify({transcript:'Place: Jodhpur',allowAI})}));
+    assert.equal(response.status,200);assert.equal(reserved,expected);assert.equal(providerCalls,expected);
+  }
+});

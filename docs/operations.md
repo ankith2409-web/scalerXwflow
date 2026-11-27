@@ -16,6 +16,8 @@ Rotating a worker recovery code invalidates the old code and signs out other clo
 
 Use Neon's configured recovery window or an independently protected logical backup. Verify the project's actual available retention before relying on it. Recovery procedure:
 
+Checked on 27 November 2026: this project's history retention is 21,600 seconds (six hours). The snapshot inventory and production snapshot schedule were empty. No backup settings, paid plan or snapshot schedule were changed. This short recovery window does not provide an overnight recovery guarantee.
+
 1. Record the production branch ID and the time to recover to. Keep the production DATABASE_URL unchanged.
 2. Restore into a separate branch or isolated database, using the provider's supported restore workflow. Never reset production as a test.
 3. Run read-only checks for the schema, row counts, foreign-key integrity and RPC definitions. Compare selected records only with authorized staff, keeping their contents out of logs.
@@ -23,6 +25,12 @@ Use Neon's configured recovery window or an independently protected logical back
 5. Review the data difference and migration compatibility before approving a production cutover. Document the outcome and time required.
 
 No backup restoration has been rehearsed yet. The checked-in migrations install RPC definitions; they do not execute worker-record deletion. Apply migration 003 to an isolated branch first, verify it, then apply the same definition change to production.
+
+## Wispr connection verification
+
+`node tests/wispr.preflight.mjs` runs the actual public discovery code against Wispr. It verifies the protected-resource metadata and authorization-server metadata, without registering a client, authorizing an account, obtaining tokens or reading meetings. The separate “Wispr public preflight” workflow supports manual runs and runs for changes to this integration. On 27 November 2026, both metadata endpoints returned HTTP 200 and the authorization host was mcp-auth.wisprflow.com. This does not prove authenticated transcript import; complete that test in the app using the intended account.
+
+The MCP client handles JSON and streamed SSE responses, matches the requested RPC id, limits bytes during reading, and stops reading once the response arrives. Synthetic stream tests include multiline frames, split Unicode, missing/error replies and a connection that remains open after the response.
 
 ## Release checks
 
