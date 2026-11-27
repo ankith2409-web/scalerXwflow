@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2, ChevronRight, CircleAlert, ClipboardCheck, ClipboardList, Files, GitCompare, Info, LogOut, MapPin, RotateCcw, ShieldCheck } from 'lucide-react';
 import { keys, type Entry } from './copy';
-import { jsonPost, request } from './voice';
+import { ApiError, jsonPost, request } from './voice';
 import { Brand, Dialog, Skeleton, Spinner } from './ui';
 
 type Account = { label: string; fields: Entry; quote: string };
@@ -42,15 +42,17 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
   const [recordId, selectRecord] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [query,setQuery]=useState(''),[search,setSearch]=useState(''),[page,setPage]=useState(0),[total,setTotal]=useState(0);
+  const [oldPassword,setOldPassword]=useState(''),[newStaffPassword,setNewStaffPassword]=useState('');
   const title = referralsPage ? 'Referral follow-up' : 'Workplace review';
   const heading = useRef<HTMLHeadingElement>(null);
   const demoSuffix = new URLSearchParams(location.search).get('demo') === '1' ? '?demo=1' : '';
 
-  async function load(local = workspace) {
-    const overview = await request<{ matches: Candidate[]; referrals: Referral[]; records: RecordItem[] }>('/api/staff/overview');
+  async function load(local = workspace,nextPage=page,nextSearch=search) {
+    const [overview,result] = await Promise.all([request<{ matches: Candidate[]; referrals: Referral[]; records: RecordItem[] }>('/api/staff/overview'),local?request<{records:RecordItem[];total:number}>('/api/staff/search?query='+encodeURIComponent(nextSearch)+'&page='+nextPage):Promise.resolve(null)]);
     setMatches(overview.matches);
     setReferrals(overview.referrals);
-    setRecords(local ? overview.records : []);
+    setRecords(result?.records??[]);setTotal(result?.total??0);setPage(nextPage);setSearch(nextSearch);
   }
 
   async function run(action: () => Promise<void>) {
@@ -61,10 +63,11 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
       await action();
     } catch (failure) {
       const code = (failure as Error).message;
-      if (code === '401') setActive(false);
+      const currentPasswordError=failure instanceof ApiError&&failure.detail.includes('current pass');
+      if (code === '401'&&!currentPasswordError) setActive(false);
       if (code === '409' || code === '404') await load().catch(() => {});
       setError(code === '409' || code === '404' ? 'This record changed or the action is unavailable. Review the current information and try again.'
-        : code === '401' ? 'Check your passphrase or sign in again.' : code === '429' ? 'Too many attempts. Wait five minutes and try again.'
+        : currentPasswordError ? 'Check your current password.' : code === '400'&&failure instanceof ApiError?failure.detail : code === '401' ? 'Check your passphrase or sign in again.' : code === '429' ? 'Too many attempts. Wait five minutes and try again.'
           : 'The workspace could not complete this action. Try again.');
     } finally {
       setBusy(false);
@@ -147,6 +150,10 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
         </div>
         {error && <p className="notice" role="alert"><CircleAlert size={18} aria-hidden="true" />{error}</p>}
         {message && <p className="status-note" role="status"><CheckCircle2 size={18} aria-hidden="true" />{message}</p>}
+        {active&&workspace&&<details className="paper staff-entry"><summary>Change my password</summary><form onSubmit={event=>{event.preventDefault();void run(async()=>{await request('/api/staff/password',jsonPost({currentPassword:oldPassword,password:newStaffPassword}));setOldPassword('');setNewStaffPassword('');setMessage('Password changed. Other staff sessions for this account have been signed out.');});}}>
+          <label className="field-label" htmlFor="current-password">Current password</label><input id="current-password" type="password" className="line-input" value={oldPassword} onChange={e=>setOldPassword(e.target.value)} required autoComplete="current-password"/>
+          <label className="field-label" htmlFor="replacement-password">New password (at least 12 characters)</label><input id="replacement-password" type="password" className="line-input" value={newStaffPassword} onChange={e=>setNewStaffPassword(e.target.value)} required minLength={12} maxLength={cloud?72:128} autoComplete="new-password"/>
+          <button className="primary" disabled={busy}>Change password</button></form></details>}
         {active && cloud && role === 'admin' && <details className="paper staff-entry"><summary>Manage staff access</summary>
           <form onSubmit={(event) => { event.preventDefault(); void run(async () => {
             await request('/api/staff/accounts',jsonPost({email:newEmail,password:newPassword,role:newRole}));setNewEmail('');setNewPassword('');setMessage('Staff account created. Share its credentials privately.');
@@ -215,6 +222,8 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
         </div>}
         {active && workspace && !referralsPage && <section className="paper shared-records">
           <h2>Shared work histories</h2>
+          <form className="staff-search" onSubmit={event=>{event.preventDefault();void run(()=>load(true,0,query));}}><label className="field-label" htmlFor="staff-search">Search all shared histories by place, task, time, landmark or name</label><div className="action-row"><input id="staff-search" className="line-input" maxLength={100} value={query} onChange={e=>setQuery(e.target.value)} placeholder="For example: Jodhpur"/><button className="quiet" disabled={busy}>Search</button></div></form>
+          <div className="action-row"><span className="muted">{total?`${page*25+1}–${Math.min((page+1)*25,total)} of ${total}`:'No results'}</span><button className="quiet" disabled={busy||page===0} onClick={()=>void run(()=>load(true,page-1))}>Previous page</button><button className="quiet" disabled={busy||(page+1)*25>=total} onClick={()=>void run(()=>load(true,page+1))}>Next page</button></div>
           {record ? <>
             <label className="field-label" htmlFor="shared-record">Select a history</label>
             <select className="line-input" id="shared-record" value={record.id} onChange={(event) => selectRecord(event.target.value)}>

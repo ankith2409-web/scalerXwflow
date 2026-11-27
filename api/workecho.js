@@ -38,6 +38,9 @@ function encode(snapshot, secret) {
 function error(status, message) {
   return Response.json({ error: message }, { status, headers: { 'Cache-Control': 'no-store' } });
 }
+function forwardedUrl(source,path){
+  const result=new URL(path,source.origin);result.search=source.search;result.searchParams.delete('route');return result;
+}
 
 export default {
   async fetch(request) {
@@ -47,7 +50,7 @@ export default {
     const demo = incomingPath.startsWith('/api/demo/');
     if (demo) {
       incomingPath = '/api/' + incomingPath.slice('/api/demo/'.length);
-      request = new Request(new URL(incomingPath, incoming.origin), request);
+      request = new Request(forwardedUrl(incoming,incomingPath), request);
       if (incomingPath === '/api/wispr/status') return Response.json({ available: false, connected: false });
       if (incomingPath.startsWith('/api/wispr/')) return error(403, 'Account connections are disabled in the fictional demo.');
     }
@@ -67,7 +70,7 @@ export default {
         const handler = await createNeonHandler();
         const headers = new Headers(request.headers);
         headers.set('x-workecho-client', request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() || 'global');
-        return await handler(new Request(new URL(path,source.origin), new Request(request, { headers })));
+        return await handler(new Request(forwardedUrl(source,path), new Request(request, { headers })));
       } catch { return error(503,'The workspace is temporarily unavailable. Your unsaved text is still on screen.'); }
     }
     // A configured backend owns durable records. Cookie snapshots are only the isolated rehearsal mode.
@@ -84,7 +87,7 @@ export default {
       }
       headers.set('x-workecho-client', request.headers.get('x-vercel-forwarded-for') ?? 'global');
       try {
-        const upstream = await fetch(backend + path, { method: request.method, headers,
+        const upstream = await fetch(backend + path + forwardedUrl(source,path).search, { method: request.method, headers,
           body: request.body, ...(request.body ? { duplex: 'half' } : {}), redirect: 'error', signal: AbortSignal.timeout(27000) });
         const output = new Headers({ 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         for (const value of upstream.headers.getSetCookie()) output.append('Set-Cookie',value);
@@ -106,7 +109,7 @@ export default {
     try {
       const input = request.body ? Readable.fromWeb(request.body) : Readable.from([]);
       input.method = request.method;
-      input.url = path;
+      input.url = path + url.search;
       input.headers = Object.fromEntries(request.headers);
       const headers = new Headers();
       let status = 500;

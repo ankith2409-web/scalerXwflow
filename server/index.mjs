@@ -143,6 +143,16 @@ export function createRequestHandler(db, {
           }
           if (!active) throw new RequestError(401, 'Sign in to the staff workspace.');
           const scope = workspace ? db.workspace.staffScope() : session;
+          if(path==='/api/staff/password'&&method==='POST'){
+            if(!workspace)throw new RequestError(403,'Passwords are unavailable in the fictional demo.');
+            const data=await json(req);return send(res,200,db.workspace.changePassword(data.currentPassword,data.password,credential));
+          }
+          if(path==='/api/staff/search'&&method==='GET'){
+            const query=url.searchParams.get('query')??'',page=Number(url.searchParams.get('page')??0),size=25;
+            if(query.length>100||!Number.isSafeInteger(page)||page<0||page>100000)throw new RequestError(400,'Check your search and page.');
+            const rows=(workspace?db.demo.records(scope):[]).filter(row=>Object.values(row.fields).filter(Boolean).join(' ').toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+            return send(res,200,{records:rows.slice(page*size,(page+1)*size),page,pageSize:size,total:rows.length});
+          }
           if (path === '/api/staff/overview' && method === 'GET') return send(res, 200, { records: workspace ? db.demo.records(scope) : [], matches: db.demo.candidates(scope), referrals: db.demo.referrals(scope), window: null });
           if (workspace && method === 'GET' && path === '/api/staff/records') return send(res, 200, db.demo.records(scope));
           if (method === 'GET' && path === '/api/staff/matches') return send(res, 200, db.demo.candidates(scope));
@@ -162,6 +172,7 @@ export function createRequestHandler(db, {
         const [, sharingId] = path.match(/^\/api\/history\/([^/]+)\/sharing$/) ?? [];
         if (method === 'DELETE' && isUuid(sharingId)) return send(res, 200, db.stopSharing(session, sharingId));
         const [, historyId] = path.match(/^\/api\/history\/([^/]+)$/) ?? [];
+        if(method==='DELETE'&&isUuid(historyId))return send(res,200,db.deleteHistory(session,historyId,await json(req)));
         if (method === 'PATCH' && isUuid(historyId)) return send(res, 200, db.revise(session, historyId, await json(req)));
         const [, id, action] = path.match(/^\/api\/intakes\/([^/]+)\/(confirm|turns|extract|translate)$/) ?? [];
         if (method === 'POST' && isUuid(id)) {

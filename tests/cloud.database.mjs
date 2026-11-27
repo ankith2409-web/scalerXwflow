@@ -91,7 +91,39 @@ try {
   await assert.rejects(db.query("select public.we_api('history','','{}')"));
   await db.exec('reset role;');
   await db.exec(await readFile(new URL('../database/migrations/002-workflow-quality.sql',import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../database/migrations/003-privacy-and-search.sql',import.meta.url),'utf8'));
   assert.equal((await recovered('/api/history')).data[0].fields.task,'Polished stone');
+  const duplicateStaff=client();assert.equal((await duplicateStaff('/api/staff/session','POST',{email:'admin@example.test',password:'a long test password'})).status,200);
+  assert.equal((await staff('/api/staff/password','POST',{currentPassword:'wrong',password:'replacement test password'})).status,401);
+  assert.equal((await staff('/api/staff/password','POST',{currentPassword:'a long test password',password:'replacement test password'})).status,200);
+  assert.equal((await duplicateStaff('/api/staff/session')).data.active,false);
+  assert.equal((await reviewer('/api/staff/session')).data.active,true);
+  const oldLogin=client();assert.equal((await oldLogin('/api/staff/session','POST',{email:'admin@example.test',password:'a long test password'})).status,401);
+  assert.equal((await oldLogin('/api/staff/session','POST',{email:'admin@example.test',password:'replacement test password'})).status,200);
+  await db.query(`with jobs as (insert into public.we_intakes(worker_id,language,voice,matching,outreach)
+    select (select worker_id from public.we_histories where id=$1),'en',false,false,true from generate_series(1,230) returning id,worker_id)
+    insert into public.we_histories(intake_id,worker_id,fields,evidence,matching,outreach,operation,fingerprint)
+    select id,worker_id,'{"place":"Archiveplace","task":"Archived unique query","period":null,"landmark":null,"alias":null}'::jsonb,'{}',false,true,gen_random_uuid(),'synthetic-test' from jobs`,[second.id]);
+  const search=await staff('/api/staff/search?query=Archived%20unique&page=0');assert.equal(search.status,200,JSON.stringify(search));assert.equal(search.data.total,230);assert.equal(search.data.records.length,25);
+  assert.equal((await staff('/api/staff/search?query=Archived%20unique&page=9')).data.records.length,5);
+  assert.equal((await staff('/api/staff/search?query=%25&page=0')).data.total,0);
+  assert.equal((await stranger('/api/staff/search')).status,401);
+  assert.equal((await staff('/api/staff/search?page=-1')).status,400);
+  const extra=client(),extraRecord=await worker(extra);
+  const extraDevice=client();assert.equal((await extraDevice('/api/session/restore','POST',{code:extraRecord.code})).status,200);
+  const replacement=await extra('/api/session/recovery-code','POST');assert.equal(replacement.status,200);
+  assert.equal((await extraDevice('/api/history')).status,401);
+  assert.equal((await client()('/api/session/restore','POST',{code:extraRecord.code})).status,401);
+  assert.equal((await client()('/api/session/restore','POST',{code:replacement.data.code})).status,200);
+  const extraTarget=extraRecord.id+':1:direct';
+  assert.equal((await staff('/api/staff/referrals/'+extraTarget+'/transition','POST',{status:'draft',version:1,reason:'Fictional deletion test.',operation:randomUUID()})).status,200);
+  assert.equal((await staff('/api/staff/search?query=Jodhpur&page=0')).data.records.find(row=>row.id===extraTarget).referral,true);
+  assert.equal((await stranger('/api/history/'+extraRecord.id,'DELETE',{confirmed:true,version:1})).status,404);
+  assert.equal((await extra('/api/history/'+extraRecord.id,'DELETE',{confirmed:true,version:2})).status,409);
+  assert.equal((await extra('/api/history/'+extraRecord.id,'DELETE',{confirmed:true,version:1})).status,200);
+  assert.deepEqual((await extra('/api/history')).data,[]);
+  for(const table of ['we_sources','we_revisions','we_referrals'])assert.equal((await db.query(`select count(*)::int as n from public.${table} where history_id=$1`,[extraRecord.id])).rows[0].n,0);
+  console.log('Maintenance checks passed: >200 record search, pagination, literal search, password changes, session revocation, versioned private deletion and linked-data cleanup.');
   console.log('PostgreSQL checks passed: separate clients, privacy, bootstrap login, matching, referral approval, withdrawal, recovery, revision conflicts, and denied anonymous database access.');
 } catch(error) { console.error('PostgreSQL verification failed:',error.message,error.detail??'',error.where??'',error.position??'',error.internalQuery??''); if(error.query && error.position)console.error(error.query.slice(Math.max(0,Number(error.position)-120),Number(error.position)+120)); process.exitCode=1; }
 finally {await db.close();}

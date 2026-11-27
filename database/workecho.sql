@@ -97,6 +97,28 @@ begin
   if p_action like 'staff_%' then
     if st.id is null then raise exception '401|Sign in to the staff workspace.'; end if;
     v_actor := st.email;
+    if p_action='staff_password' then
+      select ss.* into st from public.we_staff ss where ss.id=s.staff_id for update;
+      bucket_no:=floor(extract(epoch from now())/300);
+      insert into public.we_limits values('password:'||st.id,bucket_no,1) on conflict(key,bucket) do update set uses=we_limits.uses+1 returning uses into used;
+      if used>10 then return jsonb_build_object('_error',429,'message','Wait five minutes before trying again.'); end if;
+      if st.password_hash <> extensions.crypt(coalesce(p_input->>'currentPassword',''),st.password_hash) then return jsonb_build_object('_error',401,'message','Check your current password.'); end if;
+      update public.we_staff set password_hash=extensions.crypt(p_input->>'password',extensions.gen_salt('bf',12)) where id=st.id;
+      delete from public.we_sessions where staff_id=st.id and token_hash<>v_token_hash;
+      insert into public.we_events(target,kind,status,reason,actor) values('staff:'||st.id,'access','password_changed','Password changed; other sessions revoked.',v_actor);
+      return jsonb_build_object('changed',true);
+    end if;
+    if p_action='staff_search' then
+      return jsonb_build_object('page',(p_input->>'page')::int,'pageSize',(p_input->>'size')::int,
+        'total',(select count(*) from public.we_histories x where (matching or outreach) and
+          strpos(lower(concat_ws(' ',fields->>'place',fields->>'task',fields->>'period',fields->>'landmark',fields->>'alias')),lower(p_input->>'query'))>0),
+        'records',coalesce((select jsonb_agg(public.we_record(x)||jsonb_build_object('label','Worker '||upper(left(x.worker_id::text,8)),
+          'quote',coalesce((select source->>'text' from public.we_sources where history_id=x.id),''),'matching',x.matching,'outreach',x.outreach,
+          'referral',exists(select 1 from public.we_referrals rr where rr.history_id=x.id and rr.history_version=x.version))) from
+          (select * from public.we_histories where (matching or outreach) and
+            strpos(lower(concat_ws(' ',fields->>'place',fields->>'task',fields->>'period',fields->>'landmark',fields->>'alias')),lower(p_input->>'query'))>0
+            order by confirmed_at desc,id limit (p_input->>'size')::int offset (p_input->>'page')::int*(p_input->>'size')::int) x),'[]'));
+    end if;
     if p_action='staff_add' then
       if st.role <> 'admin' then raise exception '403|Administrator access is required.'; end if;
       if p_input->>'role' not in ('admin','reviewer','health') or length(p_input->>'password') not between 12 and 72 then raise exception '400|Check the account details.'; end if;
@@ -177,7 +199,11 @@ begin
       on conflict(intake_id) do update set version=excluded.version,operation=excluded.operation,payload=excluded.payload,updated_at=excluded.updated_at returning * into d;
     return jsonb_build_object('id',d.intake_id,'version',d.version,'data',d.payload,'updatedAt',d.updated_at);
   end if;
-  if p_action='recovery' then update public.we_workers set recovery_hash=p_input->>'recoveryHash' where id=w; return '{}'; end if;
+  if p_action='recovery' then
+    update public.we_workers set recovery_hash=p_input->>'recoveryHash' where id=w;
+    delete from public.we_sessions where worker_id=w and token_hash<>v_token_hash;
+    return '{}';
+  end if;
   if p_action='intake' then
     if (select count(*) from public.we_intakes where worker_id=w and created_at>now()-interval '1 day')>=50 then raise exception '429|Daily history limit reached.'; end if;
     insert into public.we_intakes(worker_id,language,voice,matching,outreach) values(w,p_input->>'language',(p_input->>'voice')::boolean,(p_input->>'matching')::boolean,(p_input->>'outreach')::boolean) returning id into new_id;
@@ -218,6 +244,18 @@ begin
   end if;
   select * into h from public.we_histories where id=(p_input->>'id')::uuid and worker_id=w for update;
   if h.id is null then raise exception '404|History not found.'; end if;
+  if p_action='delete_history' then
+    if h.version<>(p_input->>'version')::int then raise exception '409|This history changed. Review it before deletion.'; end if;
+    delete from public.we_events ev where strpos(ev.target,h.id::text)>0;
+    delete from public.we_decisions where left_id=h.id or right_id=h.id;
+    delete from public.we_referrals where history_id=h.id;
+    delete from public.we_sources where history_id=h.id;
+    delete from public.we_revisions where history_id=h.id;
+    delete from public.we_histories where id=h.id;
+    delete from public.we_drafts where intake_id=h.intake_id;
+    delete from public.we_intakes where id=h.intake_id;
+    return jsonb_build_object('deleted',true);
+  end if;
   if p_action='revise' then
     if exists(select 1 from public.we_revisions where history_id=h.id and operation=(p_input->>'operation')::uuid and version=(p_input->>'version')::int+1 and fields=p_input->'fields') then return public.we_record(h); end if;
     if h.version<>(p_input->>'version')::int then raise exception '409|This history changed.'; end if;

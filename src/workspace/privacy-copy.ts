@@ -1,0 +1,5 @@
+export const privacyCopy={
+  en:{remove:'Delete this job',title:'Permanently delete this job?',help:'This removes the original story, corrections, related staff reviews and follow-up records. It cannot be undone. Other jobs in your history remain available.',confirm:'Permanently delete',deleted:'The job and its associated records were deleted.',rotate:'Other signed-in devices will also be signed out.'},
+  hi:{remove:'यह काम मिटाएँ',title:'यह काम हमेशा के लिए मिटाएँ?',help:'मूल बातचीत, सुधार, संबंधित कर्मचारी जाँच और आगे की कार्रवाई के रिकॉर्ड हट जाएँगे। इन्हें वापस नहीं लाया जा सकेगा। आपके बाकी काम सुरक्षित रहेंगे।',confirm:'हमेशा के लिए मिटाएँ',deleted:'काम और उसके संबंधित रिकॉर्ड मिटा दिए गए।',rotate:'अन्य उपकरणों पर खुले सत्र भी बंद हो जाएँगे।'},
+  kn:{remove:'ಈ ಕೆಲಸ ಅಳಿಸಿ',title:'ಈ ಕೆಲಸವನ್ನು ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಬೇಕೇ?',help:'ಮೂಲ ಮಾತುಗಳು, ತಿದ್ದುಪಡಿಗಳು ಮತ್ತು ಸಂಬಂಧಿತ ಸಿಬ್ಬಂದಿ ಪರಿಶೀಲನೆ ಹಾಗೂ ಸಂಪರ್ಕದ ದಾಖಲೆಗಳು ಅಳಿಯುತ್ತವೆ. ಇದನ್ನು ಹಿಂತಿರುಗಿಸಲಾಗುವುದಿಲ್ಲ. ಬೇರೆ ಕೆಲಸಗಳ ದಾಖಲೆಗಳು ಉಳಿಯುತ್ತವೆ.',confirm:'ಶಾಶ್ವತವಾಗಿ ಅಳಿಸಿ',deleted:'ಕೆಲಸ ಮತ್ತು ಸಂಬಂಧಿತ ದಾಖಲೆಗಳು ಅಳಿಸಲ್ಪಟ್ಟಿವೆ.',rotate:'ಇತರ ಸಾಧನಗಳಲ್ಲಿ ತೆರೆದಿರುವ ಸೆಷನ್‌ಗಳೂ ಮುಚ್ಚಲ್ಪಡುತ್ತವೆ.'},
+};

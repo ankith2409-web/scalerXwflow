@@ -18,6 +18,7 @@ const payload={confirmed:true,operation:randomUUID(),fields:result.fields,eviden
 const saved=await call('/api/demo/intakes/'+job.id+'/confirm','POST',payload);assert.equal(saved.permissions.matching,true);assert.equal(saved.source.text,source.text);
 await call('/api/demo/staff/session','POST');const overview=await call('/api/demo/staff/overview');assert.ok(overview.matches.length>0);
 await call('/api/demo/history/'+saved.id+'/sharing','DELETE');assert.equal((await call('/api/demo/history'))[0].sharing,false);
+await call('/api/demo/history/'+saved.id,'DELETE',{confirmed:true,version:saved.version});assert.deepEqual(await call('/api/demo/history'),[]);
 await call('/api/demo/session','DELETE');await call('/api/demo/history','GET',undefined,401);
 assert.equal(jar.has('we_cloud_worker'),false);
 console.log('Hosted smoke passed: public UI, private-route denial, AI disabled, isolated natural-story capture, final sharing, source preservation, staff demo and withdrawal.');
