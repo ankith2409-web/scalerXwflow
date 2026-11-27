@@ -2,6 +2,7 @@
 // Only read-only meeting search and transcript retrieval are exposed to the UI.
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { RequestError } from './errors.mjs';
+import {readMcpResponse} from './mcp-response.mjs';
 const server = 'https://api.wisprflow.ai/connect/mcp';
 const random = () => randomBytes(32).toString('base64url');
 const digest = value => createHash('sha256').update(value).digest('base64url');
@@ -52,13 +53,8 @@ export function createWisprHandler({ secret, origin, fetcher=fetch }={}) {
       const response=await fetcher(server,{method:'POST',headers,redirect:'error',signal:AbortSignal.timeout(12000),body:JSON.stringify({jsonrpc:'2.0',...(id===null?{}:{id}),method,params})});
       if(!response.ok)throw new RequestError(response.status===401?401:503,'Wispr could not complete this request. Reconnect or import a text file.');
       session=response.headers.get('mcp-session-id')??session;
-      if(id===null||response.status===202)return null;
-      const text=await response.text();if(text.length>1000000)throw new RequestError(413,'Choose a shorter transcript.');
-      const result=response.headers.get('content-type')?.includes('text/event-stream')
-        ? text.split(/\r?\n/).filter(line=>line.startsWith('data:')).map(line=>{try{return JSON.parse(line.slice(5));}catch{return null;}}).find(value=>value?.id===id)
-        :JSON.parse(text);
-      if(!result||result.error||result.result?.isError)throw new RequestError(422,'Wispr could not return that meeting. Check your account permissions.');
-      return result.result;
+      if(id===null||response.status===202){await response.body?.cancel();return null;}
+      return readMcpResponse(response,id);
     }
     const hello=await send('initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'WorkEcho',version:'0.2.0'}});
     if(!hello)throw new RequestError(503,'Wispr connection could not initialize.');
