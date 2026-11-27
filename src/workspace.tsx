@@ -89,7 +89,7 @@ function Workspace() {
         <p className="v2-intro">{w.page === 'capture' ? t.intro : w.page === 'review' ? t.uncertain : w.page === 'saved' ? t.savedHelp : w.page === 'restore' ? t.recoveryHelp : t.finalHelp}</p>
         {['capture', 'review', 'saved'].includes(w.page) && <ol className="v2-steps" aria-label={t.review}>{[t.stepCapture, t.stepReview, t.stepSave].map((label, i) => <li key={label} className={i <= stage ? 'active' : ''} aria-current={i === stage ? 'step' : undefined}><span>{i < stage ? <Check size={15}/> : i + 1}</span>{label}</li>)}</ol>}
         {w.notice && <p className="v2-message" role="status"><Info size={18}/>{w.notice}{!w.session && <button className="v2-text" onClick={() => location.reload()}>{t.retry}</button>}</p>}
-        <DeviceDraft snapshot={w.deviceSnapshot} language={d.language} online={w.online} onRestore={w.restoreDevice} onSync={w.flush} synced={w.draftState==='saved'}/>
+        <DeviceDraft snapshot={w.deviceSnapshot} language={d.language} online={w.online} onRestore={w.restoreDevice} onSync={w.syncDevice} synced={w.deviceSynced}/>
         {!w.ready ? <Skeleton label={t.loading} kind="form"/> : <>
         {w.page === 'capture' && <>
           <section className="v2-capture-panel" aria-busy={w.busy}>
