@@ -6,8 +6,14 @@ import { Dialog, Skeleton, Spinner } from './ui';
 import { fieldKeys, type Fields, type History, type Locale } from './workspace/types';
 import { useWorkspace } from './workspace/useWorkspace';
 import { privacyCopy } from './workspace/privacy-copy';
+import {PrintHost,showPrint} from './features/print';
+import {featureCopy} from './features/copy';
+import {DeviceDraft} from './features/DeviceDraft';
 import './style.css';
 import './rebuilt.css';
+import './features/features.css';
+const RecordExtras=lazy(()=>import('./features/WorkerExtras').then(m=>({default:m.RecordExtras})));
+const HistoryExtras=lazy(()=>import('./features/WorkerExtras').then(m=>({default:m.HistoryExtras})));
 const WisprImport = lazy(() => import('./wispr-import').then(module => ({ default: module.WisprImport })));
 const StaffWorkspace = lazy(() => import('./staff').then(module => ({ default: module.StaffWorkspace })));
 
@@ -30,8 +36,9 @@ function Workspace() {
   const headings = { capture: t.title, review: t.review, saved: t.saved, history: t.historyTitle, restore: t.restore };
   const stage = w.page === 'capture' ? 0 : w.page === 'review' ? 1 : 2;
   const valueCount = Object.values(d.fields).filter(Boolean).length;
-  const canConfirm = valueCount > 0 && w.draftState !== 'conflict' && (w.consent || !!w.revision);
+  const canConfirm = w.online && valueCount > 0 && w.draftState !== 'conflict' && (w.consent || !!w.revision);
   const canPrepare = w.consent && w.hasContent && !!w.session && w.draftState !== 'conflict';
+  useEffect(()=>{const match=/^#recovery=([\w-]{43})$/.exec(location.hash);if(match){history.replaceState({},'',location.pathname+location.search);setRecovery(match[1]);w.go('restore',true);}},[]);
   function newJob() { if (w.unfinished) setDialog('discard'); else void w.newJob(); }
   async function switchMode(mode: 'story' | 'guided') {
     if (mode !== d.mode && w.unfinished) { if (!window.confirm(t.discardTitle + ' ' + t.discardHelp)) return; await w.newJob(); }
@@ -56,6 +63,7 @@ function Workspace() {
     {w.code && <><code data-testid="recovery-code">{w.code}</code><div className="v2-actions">
       <button className="v2-text" onClick={() => void navigator.clipboard.writeText(w.code).then(() => { w.setNotice(t.copied); setKept(true); }).catch(() => w.setNotice(t.recoveryHelp))}>{t.copy}</button>
       <button className="v2-outline" onClick={returnCard}><Download size={17}/>{t.downloadCard}</button>
+      <button className="v2-outline" onClick={()=>{showPrint({type:'card',code:w.code,language:d.language});setKept(true);}}>{featureCopy(d.language).returnCard} · QR</button>
     </div></>}
     <button className="v2-text" disabled={w.busy} onClick={() => { if (window.confirm(t.rotateWarning+' '+p.rotate)) { setKept(false); void w.rotate(); } }}>{t.rotateCode}</button>
   </section>; }
@@ -81,6 +89,7 @@ function Workspace() {
         <p className="v2-intro">{w.page === 'capture' ? t.intro : w.page === 'review' ? t.uncertain : w.page === 'saved' ? t.savedHelp : w.page === 'restore' ? t.recoveryHelp : t.finalHelp}</p>
         {['capture', 'review', 'saved'].includes(w.page) && <ol className="v2-steps" aria-label={t.review}>{[t.stepCapture, t.stepReview, t.stepSave].map((label, i) => <li key={label} className={i <= stage ? 'active' : ''} aria-current={i === stage ? 'step' : undefined}><span>{i < stage ? <Check size={15}/> : i + 1}</span>{label}</li>)}</ol>}
         {w.notice && <p className="v2-message" role="status"><Info size={18}/>{w.notice}{!w.session && <button className="v2-text" onClick={() => location.reload()}>{t.retry}</button>}</p>}
+        <DeviceDraft snapshot={w.deviceSnapshot} language={d.language} online={w.online} onRestore={w.restoreDevice} onSync={w.flush} synced={w.draftState==='saved'}/>
         {!w.ready ? <Skeleton label={t.loading} kind="form"/> : <>
         {w.page === 'capture' && <>
           <section className="v2-capture-panel" aria-busy={w.busy}>
@@ -130,10 +139,12 @@ function Workspace() {
           <div className="v2-records">{w.records.length ? w.records.map(row => <article key={row.id}><div className="v2-record-title"><h2>{row.fields.place ?? row.fields.task ?? t.correction}</h2><span>{new Date(row.confirmedAt).toLocaleDateString(d.language === 'en' ? 'en-IN' : d.language + '-IN')}</span></div>
             <dl>{fieldKeys.map((key, i) => <div key={key}><dt>{t.fields[i]}</dt><dd>{row.fields[key] ?? t.missing}</dd></div>)}</dl>
             <details><summary>{t.source}</summary><blockquote>{row.source?.text ?? t.noSource}</blockquote></details>
+            <Suspense fallback={<p>{featureCopy(d.language).pending}</p>}><RecordExtras row={row} language={d.language}/></Suspense>
             <div className="v2-permission-summary"><span>{t.consentMatch}: {row.permissions.matching ? '✓' : '—'}</span><span>{t.consentOutreach}: {row.permissions.outreach ? '✓' : '—'}</span></div>
             <div className="v2-actions"><button className="v2-text" disabled={w.busy} onClick={() => w.correct(row)}>{t.correct}</button>{row.sharing && <button className="v2-text" disabled={w.busy} onClick={() => { if (window.confirm(t.withdrawConfirm)) void w.withdraw(row); }}>{t.withdraw}</button>}<button className="v2-text v2-danger" disabled={w.busy} onClick={()=>setDeleting(row)}>{p.remove}</button></div>
           </article>) : <div className="v2-empty"><Folder size={30}/><h2>{t.empty}</h2><p>{t.emptySignedOut}</p><div className="v2-actions"><button className="v2-primary" onClick={newJob}>{t.newJob}</button>{w.session?.workspace && <button className="v2-outline" onClick={() => w.go('restore')}>{t.restore}</button>}</div></div>}</div>
           {recoveryPanel()}
+          {!!w.records.length&&<Suspense fallback={<p>{featureCopy(d.language).pending}</p>}><HistoryExtras rows={w.records} language={d.language}/></Suspense>}
           {!!w.records.length && <div className="v2-actions"><button className="v2-primary" onClick={newJob}><Plus size={18}/>{t.newJob}</button><button className="v2-text" onClick={() => download('workecho-history.txt', recordText(w.records))}><Download size={17}/>{t.export}</button>{demo && <a href="/staff/review?demo=1">{t.demoStaff}</a>}</div>}
         </>}
         </>}
@@ -147,4 +158,5 @@ function Workspace() {
     {dialog === 'switch' && <Dialog title={t.switchTitle} closeLabel={t.close} onClose={() => setDialog(null)}><p>{t.switchHelp}</p>{recoveryPanel()}<label className="v2-check"><input type="checkbox" checked={kept} onChange={e => setKept(e.target.checked)}/>{t.codeKept}</label><div className="v2-actions"><button className="v2-primary" disabled={w.busy || (w.session?.workspace && !kept)} onClick={() => { void w.closeWorker().then(() => setDialog(null)); }}>{t.finishWorker}</button><button className="v2-text" onClick={() => setDialog(null)}>{t.cancel}</button></div></Dialog>}
   </div>;
 }
-createRoot(document.getElementById('root')!).render(location.pathname.startsWith('/staff/') ? <Suspense fallback={<Skeleton label="Opening staff workspace" kind="workspace"/>}><StaffWorkspace referralsPage={location.pathname === '/staff/referrals'}/></Suspense> : <Workspace/>);
+if('serviceWorker' in navigator)void navigator.serviceWorker.register('/sw.js').catch(error=>console.warn('Offline shell unavailable:',error.message));
+createRoot(document.getElementById('root')!).render(<>{location.pathname.startsWith('/staff/') ? <Suspense fallback={<Skeleton label="Opening staff workspace" kind="workspace"/>}><StaffWorkspace referralsPage={location.pathname === '/staff/referrals'}/></Suspense> : <Workspace/>}<PrintHost/></>);

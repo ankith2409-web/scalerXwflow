@@ -9,6 +9,7 @@ import { captureFormat, transcribe } from './speech.mjs';
 import { WORKSPACE_SECONDS } from './workspace-auth.mjs';
 import { extractAccount, translateReview } from './intelligence.mjs';
 import { interfaceLanguages } from './account.mjs';
+import { featureRequest, featureDownload } from './features.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const audioTypes = new Set(['audio/webm', 'audio/ogg', 'audio/mp4']);
@@ -39,11 +40,11 @@ async function body(req, limit) {
   return Buffer.concat(chunks);
 }
 
-async function json(req) {
+async function json(req, limit = 65_536) {
   if (req.headers['content-type']?.split(';')[0] !== 'application/json') {
     throw new RequestError(415, 'Send JSON for this request.');
   }
-  const raw = await body(req, 65_536);
+  const raw = await body(req, limit);
   try {
     const parsed = JSON.parse(raw.toString('utf8'));
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
@@ -64,7 +65,7 @@ export function createRequestHandler(db, {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Permissions-Policy', 'microphone=(self)');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; frame-src https://www.openstreetmap.org; object-src 'none'; frame-ancestors 'none'; base-uri 'none'");
     res.setHeader('Cache-Control', 'no-store');
     try {
       if (workspace && !/^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(req.headers.host ?? '')) {
@@ -84,14 +85,14 @@ export function createRequestHandler(db, {
         const session = db.getSession(readCookie(workerCookie));
 
         if (path === '/api/session' && method === 'GET') {
-          return send(res, 200, { active: Boolean(session), voiceAvailable: Boolean(speechKey), analysisAvailable: Boolean(aiKey), workspace, demo: !workspace });
+          return send(res, 200, { active: Boolean(session), workerId: session?.id ?? null, voiceAvailable: Boolean(speechKey), analysisAvailable: Boolean(aiKey), workspace, demo: !workspace });
         }
         if (workspace && path === '/api/session/restore' && method === 'POST') {
           const { code } = await json(req);
           const value = db.workspace.resume(code);
           if (session && db.getSession(value)?.id !== session.id) db.signOut(session);
           cookie(res, value, WORKSPACE_SECONDS, workerCookie);
-          return send(res, 200, { active: true, voiceAvailable: Boolean(speechKey), analysisAvailable: Boolean(aiKey), workspace });
+          return send(res, 200, { active: true, workerId:db.getSession(value).id, voiceAvailable: Boolean(speechKey), analysisAvailable: Boolean(aiKey), workspace });
         }
         if (workspace && path === '/api/session/recovery-code' && method === 'POST') {
           if (!session) throw new RequestError(401, 'Open your work history first.');
@@ -113,7 +114,19 @@ export function createRequestHandler(db, {
           const owner = existing ?? (workspace ? db.workspace.newProfile() : db.createSession());
           const intake = db.startIntake(owner, data);
           if (!existing) cookie(res, owner.token, workspace ? WORKSPACE_SECONDS : SESSION_SECONDS, workerCookie);
-          return send(res, 201, { ...intake, ...(owner.code ? { code: owner.code } : {}) });
+          return send(res, 201, { ...intake, workerId:owner.id, ...(owner.code ? { code: owner.code } : {}) });
+        }
+        if(path.startsWith('/api/features/')) {
+          const route=featureRequest(url,method,method==='GET'?{}:await json(req,360_000));
+          const credential=readCookie(workspace?'we_local_staff':'we_staff');
+          const active=workspace?db.workspace.signedIn(credential):db.demo.signedIn(session,credential);
+          if(route.staff?!active:!session) throw new RequestError(401,route.staff?'Sign in to the staff workspace.':'Open your work history first.');
+          const actor={staff:route.staff,workspace,workerId:session?.id,scope:workspace?'local':session.id,memberId:workspace?'local-staff':'demo-staff',label:workspace?'Local staff':'Demo staff'};
+          const result=db.features.run(actor,route.action,route.input);
+          if(route.action==='download') {
+            const file=featureDownload(result);res.writeHead(200,{'Content-Type':file.mime,'Content-Disposition':"attachment; filename*=UTF-8''"+encodeURIComponent(file.filename)});return res.end(file.bytes);
+          }
+          return send(res,200,result);
         }
         if (path.startsWith('/api/staff/')) {
           const staffCookie = workspace ? 'we_local_staff' : 'we_staff';
@@ -150,7 +163,7 @@ export function createRequestHandler(db, {
           if(path==='/api/staff/search'&&method==='GET'){
             const query=url.searchParams.get('query')??'',page=Number(url.searchParams.get('page')??0),size=25;
             if(query.length>100||!Number.isSafeInteger(page)||page<0||page>100000)throw new RequestError(400,'Check your search and page.');
-            const rows=(workspace?db.demo.records(scope):[]).filter(row=>Object.values(row.fields).filter(Boolean).join(' ').toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+            const rows=db.demo.records(scope).filter(row=>Object.values(row.fields).filter(Boolean).join(' ').toLocaleLowerCase().includes(query.toLocaleLowerCase()));
             return send(res,200,{records:rows.slice(page*size,(page+1)*size),page,pageSize:size,total:rows.length});
           }
           if (path === '/api/staff/overview' && method === 'GET') return send(res, 200, { records: workspace ? db.demo.records(scope) : [], matches: db.demo.candidates(scope), referrals: db.demo.referrals(scope), window: null });
@@ -204,7 +217,7 @@ export function createRequestHandler(db, {
         throw new RequestError(404, 'This page could not be found.');
       }
       if (!['GET', 'HEAD'].includes(req.method)) throw new RequestError(405, 'This operation is unavailable.');
-      const file = pagePaths.has(path) ? 'index.html' : /^\/assets\/[\w.-]+\.(js|css)$/.test(path) ? path.slice(1) : null;
+      const file = path==='/sw.js'?'sw.js':pagePaths.has(path) ? 'index.html' : /^\/assets\/[\w.-]+\.(js|css)$/.test(path) ? path.slice(1) : null;
       if (!file) throw new RequestError(404, 'This page could not be found.');
       const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
       let bytes;

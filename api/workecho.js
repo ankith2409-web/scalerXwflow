@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { createRequestHandler } from '../server/index.mjs';
@@ -8,31 +8,35 @@ const prefix = '__Host-workecho-demo-';
 const chunkSize = 3400;
 const chunkCount = 2;
 const context = Buffer.from('workecho-demo-v1');
+const sandboxCookie='__Host-workecho-sandbox';
 
 function decode(cookies, secret) {
   const chunks = Array.from({ length: chunkCount }, (_, index) => cookies.get(prefix + index) ?? '');
   if (!chunks[0] || chunks.some((value) => !/^[\w-]{0,3400}$/.test(value))) return null;
+  return decodeSealed(chunks.join(''),secret,128_000);
+}
+function decodeSealed(value,secret,maxOutputLength=2_400_000){
   try {
-    const sealed = Buffer.from(chunks.join(''), 'base64url');
+    const sealed = Buffer.from(value, 'base64url');
     const cipher = createDecipheriv('aes-256-gcm', secret, sealed.subarray(0, 12));
     cipher.setAAD(context);
     cipher.setAuthTag(sealed.subarray(12, 28));
     const data = Buffer.concat([cipher.update(sealed.subarray(28)), cipher.final()]);
-    return JSON.parse(inflateRawSync(data, { maxOutputLength: 128_000 }).toString('utf8'));
+    return JSON.parse(inflateRawSync(data, { maxOutputLength }).toString('utf8'));
   } catch {
     return null;
   }
 }
 
-function encode(snapshot, secret) {
+function encode(snapshot, secret, limit=chunkSize*chunkCount) {
   const data = Buffer.from(JSON.stringify(snapshot));
-  if (data.length > 128_000) return null;
+  if (data.length > (limit>chunkSize*chunkCount?2_400_000:128_000)) return null;
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', secret, iv);
   cipher.setAAD(context);
   const ciphertext = Buffer.concat([cipher.update(deflateRawSync(data)), cipher.final()]);
   const sealed = Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString('base64url');
-  return sealed.length <= chunkSize * chunkCount ? sealed : null;
+  return sealed.length <= limit ? sealed : null;
 }
 
 function error(status, message) {
@@ -42,7 +46,7 @@ function forwardedUrl(source,path){
   const result=new URL(path,source.origin);result.search=source.search;result.searchParams.delete('route');return result;
 }
 
-export default {
+export function createVercelHandler({sandboxRpc:injectedSandboxRpc}={}){return {
   async fetch(request) {
     const incoming = new URL(request.url);
     const incomingRoute = incoming.pathname === '/api/workecho' ? incoming.searchParams.get('route') : null;
@@ -105,7 +109,18 @@ export default {
       const separator = entry.indexOf('=');
       return [entry.slice(0, separator).trim(), entry.slice(separator + 1)];
     }));
-    const db = openStore(':memory:', cookies.has('we_session') ? decode(cookies, secret) : null);
+    let sandboxRpc,sandboxVersion=0,sandboxToken=cookies.get(sandboxCookie),snapshot;
+    try {
+      if(process.env.DATABASE_URL){
+        if(injectedSandboxRpc)sandboxRpc=injectedSandboxRpc;
+        else{const {createNeonRpc}=await import('../server/neon.mjs');sandboxRpc=await createNeonRpc();}
+        if(sandboxToken&&/^[\w-]{43}$/.test(sandboxToken)){
+          const result=await sandboxRpc('sandbox','',{action:'read',hash:createHash('sha256').update(sandboxToken).digest('hex')});
+          if(result){sandboxVersion=result.version;snapshot=decodeSealed(result.payload,secret);}
+        }else sandboxToken=randomBytes(32).toString('base64url');
+      }
+    }catch{return error(503,'The fictional demo is temporarily unavailable. Try again.');}
+    const db = openStore(':memory:', cookies.has('we_session') ? snapshot??decode(cookies, secret) : null);
     try {
       const input = request.body ? Readable.fromWeb(request.body) : Readable.from([]);
       input.method = request.method;
@@ -126,6 +141,15 @@ export default {
 
       if (request.method !== 'GET' && status < 400) {
         const snapshot = db.demoSnapshot();
+        if(sandboxRpc){
+          const sealed=snapshot.sessions.length?encode(snapshot,secret,3_200_000):'';
+          if(sealed===null)return error(413,'This demo session is full. Download your history, then reset the demo.');
+          try{await sandboxRpc('sandbox','',{action:'write',hash:createHash('sha256').update(sandboxToken).digest('hex'),version:sandboxVersion,payload:sealed});}
+          catch(failure){return error(failure.status??503,failure.status===409?'The demo changed in another tab. Retry the action.':'The fictional demo could not save this action. Try again.');}
+          headers.append('Set-Cookie',sandboxCookie+'='+sandboxToken+'; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age='+SESSION_SECONDS);
+          for(let index=0;index<chunkCount;index++)if(cookies.has(prefix+index))headers.append('Set-Cookie',prefix+index+'=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0');
+          return new Response(body,{status,headers});
+        }
         const sealed = snapshot.sessions.length ? encode(snapshot, secret) : '';
         if (sealed === null) return error(413, 'This demo session is full. Export your history, then reset the demo.');
         for (let index = 0; index < chunkCount; index++) {
@@ -140,4 +164,5 @@ export default {
       db.close();
     }
   },
-};
+};}
+export default createVercelHandler();

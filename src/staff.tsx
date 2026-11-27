@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import {lazy,Suspense,useEffect, useRef, useState, type MouseEvent } from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2, ChevronRight, CircleAlert, ClipboardCheck, ClipboardList, Files, GitCompare, Info, LogOut, MapPin, RotateCcw, ShieldCheck } from 'lucide-react';
 import { keys, type Entry } from './copy';
 import { ApiError, jsonPost, request } from './voice';
 import { Brand, Dialog, Skeleton, Spinner } from './ui';
+const StaffFeatures=lazy(()=>import('./features/StaffFeatures').then(m=>({default:m.StaffFeatures})));
+const StaffRecordExtras=lazy(()=>import('./features/StaffFeatures').then(m=>({default:m.StaffRecordExtras})));
 
 type Account = { label: string; fields: Entry; quote: string };
 type RecordItem = Account & { id: string; version: number; outreach: boolean; matching: boolean; referral: boolean };
@@ -49,7 +51,7 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
   const demoSuffix = new URLSearchParams(location.search).get('demo') === '1' ? '?demo=1' : '';
 
   async function load(local = workspace,nextPage=page,nextSearch=search) {
-    const [overview,result] = await Promise.all([request<{ matches: Candidate[]; referrals: Referral[]; records: RecordItem[] }>('/api/staff/overview'),local?request<{records:RecordItem[];total:number}>('/api/staff/search?query='+encodeURIComponent(nextSearch)+'&page='+nextPage):Promise.resolve(null)]);
+    const [overview,result] = await Promise.all([request<{ matches: Candidate[]; referrals: Referral[]; records: RecordItem[] }>('/api/staff/overview'),request<{records:RecordItem[];total:number}>('/api/staff/search?query='+encodeURIComponent(nextSearch)+'&page='+nextPage)]);
     setMatches(overview.matches);
     setReferrals(overview.referrals);
     setRecords(result?.records??[]);setTotal(result?.total??0);setPage(nextPage);setSearch(nextSearch);
@@ -183,7 +185,8 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
           <button className="primary" disabled={busy} onClick={() => void run(async () => {
             await request('/api/staff/session', { method: 'POST' }); await refresh();
           })}>Enter as demo staff {busy ? <Spinner /> : <ArrowRight size={18} aria-hidden="true" />}</button></div>}
-        {active && workspace && !referralsPage && <div className="staff-summary" aria-label="Workspace totals">
+        {active&&!referralsPage&&<Suspense fallback={<Skeleton label="Loading workplace and case tools" kind="form"/>}><StaffFeatures/></Suspense>}
+        {active && !referralsPage && <div className="staff-summary" aria-label="Workspace totals">
           <div><span className="surface-icon"><Files size={19} aria-hidden="true" /></span><span>Shared histories</span><strong>{records.length}</strong></div>
           <div><span className="surface-icon"><GitCompare size={19} aria-hidden="true" /></span><span>Awaiting review</span><strong>{matches.filter(({ status }) => status === 'waiting').length}</strong></div>
           <div><span className="surface-icon"><ClipboardCheck size={19} aria-hidden="true" /></span><span>Referrals</span><strong>{referrals.length}</strong></div>
@@ -220,7 +223,7 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
               : <p className="notice">Outreach was declined for this interview.</p>)}
           </section>}
         </div>}
-        {active && workspace && !referralsPage && <section className="paper shared-records">
+        {active && !referralsPage && <section className="paper shared-records">
           <h2>Shared work histories</h2>
           <form className="staff-search" onSubmit={event=>{event.preventDefault();void run(()=>load(true,0,query));}}><label className="field-label" htmlFor="staff-search">Search all shared histories by place, task, time, landmark or name</label><div className="action-row"><input id="staff-search" className="line-input" maxLength={100} value={query} onChange={e=>setQuery(e.target.value)} placeholder="For example: Jodhpur"/><button className="quiet" disabled={busy}>Search</button></div></form>
           <div className="action-row"><span className="muted">{total?`${page*25+1}–${Math.min((page+1)*25,total)} of ${total}`:'No results'}</span><button className="quiet" disabled={busy||page===0} onClick={()=>void run(()=>load(true,page-1))}>Previous page</button><button className="quiet" disabled={busy||(page+1)*25>=total} onClick={()=>void run(()=>load(true,page+1))}>Next page</button></div>
@@ -230,8 +233,9 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
               {records.map((item) => <option value={item.id} key={item.id}>{item.label} · {item.fields.place ?? item.fields.task ?? 'Work history'}</option>)}
             </select>
             <AccountCard item={record} />
+            <Suspense fallback={<p>Loading record tools…</p>}><StaffRecordExtras key={record.id} historyId={record.id}/></Suspense>
             <div className="action-row"><span className="tag">{record.outreach ? 'Follow-up permitted' : 'Follow-up not permitted'}</span>
-              {record.outreach && (record.referral ? <a href="/staff/referrals" className="text-link" onClick={(event) => navigate(event, true)}>Open referrals</a>
+              {workspace&&record.outreach && (record.referral ? <a href="/staff/referrals" className="text-link" onClick={(event) => navigate(event, true)}>Open referrals</a>
                 : <button className="primary" disabled={busy} onClick={() => void moveReferral(record, 'draft', 'Opened for staff follow-up.', crypto.randomUUID())}>{busy && <Spinner />}Create referral</button>)}</div>
           </> : <div className="queue-empty"><Files size={22} aria-hidden="true" /><p>Confirmed histories appear here when workers allow comparison or follow-up.</p></div>}
         </section>}

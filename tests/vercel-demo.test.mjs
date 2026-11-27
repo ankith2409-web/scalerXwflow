@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import test from 'node:test';
-import api from '../api/workecho.js';
+import api,{createVercelHandler} from '../api/workecho.js';
 
 test('hosted worker and staff state survives separate function requests and clears on sign-out', async () => {
   const origin = 'https://workecho.example';
@@ -52,12 +52,13 @@ test('hosted worker and staff state survives separate function requests and clea
   assert.equal(cookies.size, 0);
 });
 
-test('explicit judge demo bypasses the production database and keeps its source private',async()=>{
+test('explicit judge demo isolates encrypted sandbox state from production worker data',async()=>{
   process.env.DATABASE_URL='postgres://unused-invalid-test-connection';
   process.env.WORKECHO_DEMO_KEY=randomBytes(32).toString('base64url');
   const cookies=new Map(),origin='https://workecho.example';
+  const sandboxes=new Map();const sandboxApi=createVercelHandler({sandboxRpc:async(action,_credential,input)=>{assert.equal(action,'sandbox');if(input.action==='read')return sandboxes.get(input.hash)??null;const old=sandboxes.get(input.hash);assert.equal(input.version,old?.version??0);assert.ok(!input.payload.includes('Fictional yard'));sandboxes.set(input.hash,{payload:input.payload,version:input.version+1});return {version:input.version+1};}});
   const call=async(path,method='GET',data)=>{
-    const response=await api.fetch(new Request(origin+'/api/demo/'+path,{method,headers:{origin,'content-type':'application/json',cookie:[...cookies].map(([k,v])=>k+'='+v).join('; ')},body:data?JSON.stringify(data):undefined}));
+    const response=await sandboxApi.fetch(new Request(origin+'/api/demo/'+path,{method,headers:{origin,'content-type':'application/json',cookie:[...cookies].map(([k,v])=>k+'='+v).join('; ')},body:data?JSON.stringify(data):undefined}));
     for(const value of response.headers.getSetCookie()){const [pair]=value.split(';');const i=pair.indexOf('=');cookies.set(pair.slice(0,i),pair.slice(i+1));}
     return {status:response.status,data:await response.json()};
   };
@@ -70,6 +71,10 @@ test('explicit judge demo bypasses the production database and keeps its source 
     const saved=await call('intakes/'+start.data.id+'/confirm','POST',{confirmed:true,operation:randomUUID(),fields,evidence:fields,source,permissions:{matching:true,outreach:true}});
     assert.equal(saved.status,200,JSON.stringify(saved));
     assert.equal((await call('history')).data[0].source.text,'Fictional yard');
+    const attachment={operation:randomUUID(),historyVersion:1,filename:'synthetic.pdf',mime:'application/pdf',base64:Buffer.concat([Buffer.from('%PDF-1.4\n'),randomBytes(80_000)]).toString('base64'),shared:false,caption:'Synthetic test only'};
+    const upload=await call('features/history/'+saved.data.id+'/attachments','POST',attachment);assert.equal(upload.status,200,JSON.stringify(upload));
+    assert.equal((await call('features/history/'+saved.data.id)).data.attachments.length,1);
+    assert.ok(cookies.has('__Host-workecho-sandbox'));assert.ok(!cookies.has('__Host-workecho-demo-0'));
     assert.equal((await call('staff/session','POST')).status,200);
     assert.ok((await call('staff/overview')).data.matches.length>0);
     assert.equal((await call('history/'+saved.data.id+'/sharing','DELETE')).status,200);
