@@ -1,8 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { compare, nextStates } from './staff-demo.mjs';
-import { extractAccount } from './intelligence.mjs';
+import { extractAccount, translateReview } from './intelligence.mjs';
 import { captureFormat, transcribe } from './speech.mjs';
 import { RequestError } from './errors.mjs';
+import { readSource, readPermissions, readDraft, validateEvidence, interfaceLanguages } from './account.mjs';
+import { semanticScores } from './matching.mjs';
 
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const token = () => randomBytes(32).toString('base64url');
@@ -75,7 +77,7 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
       const cookies = new Map((request.headers.get('cookie')??'').split(';').map((item)=> { const i=item.indexOf('='); return [item.slice(0,i).trim(),item.slice(i+1)]; }));
       const worker = cookies.get(cookieName.worker) ?? '';
       const staff = cookies.get(cookieName.staff) ?? '';
-      const capabilities = { cloud:true,workspace:true,voiceAvailable:Boolean(speechKey),analysisAvailable:Boolean(aiKey) };
+      const capabilities = { cloud:true,workspace:true,voiceAvailable:Boolean(speechKey),analysisAvailable:Boolean(aiKey),embeddingsAvailable:Boolean(aiKey) };
       const rateKey = hash(request.headers.get('x-workecho-client') || 'global');
       if (path==='/api/session' && method==='GET') return respond({...await rpc('session',worker),...capabilities});
       if (path==='/api/session' && method==='DELETE') { await rpc('signout',worker); setCookie('worker','',0); return respond({active:false}); }
@@ -91,7 +93,7 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
       }
       if (path==='/api/intakes' && method==='POST') {
         const data=await json(request);
-        if (!['en','hi'].includes(data.language) || data.save!==true || typeof data.voice!=='boolean' || ['matching','outreach'].some(k=>data[k]!==undefined && typeof data[k]!=='boolean')) throw new RequestError(400,'Choose a language and allow saving.');
+        if (!interfaceLanguages.includes(data.language) || data.save!==true || typeof data.voice!=='boolean' || ['matching','outreach'].some(k=>data[k]!==undefined && typeof data[k]!=='boolean')) throw new RequestError(400,'Choose a language and allow saving.');
         let credential=worker, code;
         if (!(await rpc('session',worker)).active) {
           credential=token(); code=token();
@@ -120,18 +122,26 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
           return respond(await rpc('staff_add',staff,{email,password,role}),201);
         }
         const records = async () => (await rpc('staff_records',staff)).map(item=>({...item,id:item.id+':'+item.version+':direct'}));
-        const candidates = async () => {
-          const [sources,decisions] = await Promise.all([rpc('staff_records',staff),rpc('staff_decisions',staff)]);
+        const candidates = async (rows) => {
+          const [sources,decisions] = await Promise.all([rows ?? rpc('staff_records',staff),rpc('staff_decisions',staff)]);
+          const scores = await semanticScores(sources,{key:aiKey,fetcher});
+          const byId=new Map(decisions.map(item=>[item.id,item]));
           return sources.filter(x=>x.matching).flatMap((left,i,all)=>all.slice(i+1).filter(right=>right.worker!==left.worker).flatMap(right=>{
             const match=compare(left,right); if(!match.show) return [];
             const id=left.id+':'+left.version+':'+right.id+':'+right.version;
-            const decision=decisions.find(x=>x.id===id);
-            return [{id,left,right,...match,status:decision?.status??'waiting',reason:decision?.reason??'',version:decision?.version??0,rulesVersion:1,referral:false,outreach:left.outreach}];
-          }));
+            const decision=byId.get(id);
+            const similarity=scores.get(left.id+':'+right.id);
+            return [{id,left,right,...match,...(similarity===undefined?{}:{semanticSimilarity:Math.round(similarity*1000)/1000}),status:decision?.status??'waiting',reason:decision?.reason??'',version:decision?.version??0,rulesVersion:1,referral:false,outreach:left.outreach}];
+          })).sort((a,b)=>(b.semanticSimilarity??-1)-(a.semanticSimilarity??-1));
         };
+        const referrals = async () => (await rpc('staff_referrals',staff)).map(item=>({...item,actions:item.outreach?(nextStates[item.status]??[]).filter(action=>action!=='approved'||['admin','health'].includes(staffSession.role)):[]}));
+        if (path==='/api/staff/overview' && method==='GET') {
+          const sources=await rpc('staff_records',staff);
+          return respond({records:sources.map(item=>({...item,id:item.id+':'+item.version+':direct'})),matches:await candidates(sources),referrals:await referrals(),window:200});
+        }
         if (path==='/api/staff/records' && method==='GET') return respond(await records());
         if (path==='/api/staff/matches' && method==='GET') return respond(await candidates());
-        if (path==='/api/staff/referrals' && method==='GET') return respond((await rpc('staff_referrals',staff)).map(item=>({...item,actions:item.outreach?(nextStates[item.status]??[]).filter(action=>action!=='approved'||['admin','health'].includes(staffSession.role)):[]})));
+        if (path==='/api/staff/referrals' && method==='GET') return respond(await referrals());
         const match = path.match(/^\/api\/staff\/(matches|referrals)\/([\w:-]+)\/(decision|transition)$/);
         if (match && method==='POST') {
           const data=await json(request);
@@ -150,20 +160,37 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
         }
       }
       if (path==='/api/history' && method==='GET') return respond(await rpc('history',worker));
+      if (path==='/api/draft' && method==='GET') return respond(await rpc('draft',worker));
+      const draft=path.match(/^\/api\/intakes\/([\w-]+)\/draft$/);
+      if (draft && uuid(draft[1])) {
+        if (method==='DELETE') return respond(await rpc('draft_discard',worker,{id:draft[1]}));
+        if (method==='POST') {
+          const data=await json(request);
+          if (!uuid(data.operation)||!Number.isSafeInteger(data.version)||data.version<0) throw new RequestError(400,'Check the draft version.');
+          return respond(await rpc('draft_save',worker,{id:draft[1],operation:data.operation,version:data.version,data:readDraft(data.data)}));
+        }
+      }
       const sharing=path.match(/^\/api\/history\/([\w-]+)\/sharing$/);
       if (sharing && uuid(sharing[1]) && method==='DELETE') return respond(await rpc('withdraw',worker,{id:sharing[1]}));
       const history=path.match(/^\/api\/history\/([\w-]+)$/);
-      const intake=path.match(/^\/api\/intakes\/([\w-]+)\/(confirm|turns|extract)$/);
+      const intake=path.match(/^\/api\/intakes\/([\w-]+)\/(confirm|turns|extract|translate)$/);
       if (history && uuid(history[1]) && method==='PATCH' || intake && uuid(intake[1]) && intake[2]==='confirm' && method==='POST') {
         const data=await json(request); const fields=entry(data.fields);
         if(data.confirmed!==true||!uuid(data.operation)||!Object.values(fields).some(Boolean)||history&&!Number.isSafeInteger(data.version)) throw new RequestError(400,'Review and confirm your history.');
-        return respond(await rpc(history?'revise':'confirm',worker,{...data,id:history?.[1]??intake[1],fields,evidence:entry(data.evidence??fields)}));
+        const source=readSource(data.source),evidence=entry(data.evidence??fields);
+        if (!history) validateEvidence(evidence,source);
+        return respond(await rpc(history?'revise':'confirm',worker,{...data,id:history?.[1]??intake[1],fields,evidence,
+          ...(source?{source}:{}),...(data.permissions===undefined?{}:{permissions:readPermissions(data.permissions)})}));
       }
       if (intake && uuid(intake[1]) && method==='POST') {
         const current=await rpc('intake_get',worker,{id:intake[1]});
         if(intake[2]==='extract') {
-          const {transcript}=await json(request); await rpc('reserve',worker);
-          return respond(await extractAccount(transcript,{key:aiKey,fetcher}));
+          const {transcript,allowAI}=await json(request); await rpc('reserve',worker);
+          return respond(await extractAccount(transcript,{key:allowAI===true?aiKey:'',fetcher}));
+        }
+        if(intake[2]==='translate') {
+          const {fields,language,allowAI}=await json(request); await rpc('reserve',worker);
+          return respond(await translateReview(fields,language,{key:allowAI===true?aiKey:'',fetcher}));
         }
         if(intake[2]==='turns') {
           if(!current.voice) throw new RequestError(403,'Voice processing was declined.');

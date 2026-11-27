@@ -2,7 +2,7 @@ import { createCloudHandler } from './cloud.mjs';
 import { RequestError } from './errors.mjs';
 
 export async function createNeonHandler({ connectionString = process.env.DATABASE_URL, origin = process.env.APP_ORIGIN,
-  aiKey = process.env.OPENAI_API_KEY, speechKey = process.env.SARVAM_API_KEY } = {}) {
+  aiKey = process.env.WORKECHO_AI_ENABLED === '1' ? process.env.OPENAI_API_KEY : '', speechKey = process.env.SARVAM_API_KEY } = {}) {
   const { neon } = await import('@neondatabase/serverless');
   const sql = neon(connectionString);
   return createCloudHandler({ origin, aiKey, speechKey, rpc: async (action, credential = '', input = {}) => {

@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { staffDemo } from './staff-demo.mjs';
 import { workspaceAuth } from './workspace-auth.mjs';
 import { RequestError } from './errors.mjs';
+import { readSource, readPermissions, readDraft, validateEvidence } from './account.mjs';
 export { RequestError } from './errors.mjs';
 
 export const SESSION_SECONDS = 30 * 60;
@@ -14,6 +15,7 @@ export const hash = (s) => createHash('sha256').update(s).digest('hex');
 const demoTables = [
   'sessions', 'intakes', 'demo_preferences', 'histories', 'history_revisions', 'voice_usage',
   'demo_staff', 'demo_decisions', 'demo_referrals', 'demo_events',
+  'account_sources', 'intake_drafts',
 ];
 
 export function openStore(filename, demoSnapshot) {
@@ -50,14 +52,26 @@ export function openStore(filename, demoSnapshot) {
       evidence TEXT NOT NULL, changed_at TEXT NOT NULL,
       PRIMARY KEY(history_id, version), UNIQUE(history_id, operation)
     );
+    CREATE TABLE IF NOT EXISTS account_sources (
+      history_id TEXT PRIMARY KEY REFERENCES histories(id) ON DELETE CASCADE, source TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS intake_drafts (
+      intake_id TEXT PRIMARY KEY REFERENCES intakes(id) ON DELETE CASCADE, version INTEGER NOT NULL,
+      operation TEXT NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
   `);
   const now = () => Math.floor(Date.now() / 1000);
   const timestamp = () => new Date().toISOString();
   const toHistory = (row) => {
     const revision = db.prepare('SELECT * FROM history_revisions WHERE history_id = ? ORDER BY version DESC LIMIT 1').get(row.id);
+    const source = db.prepare('SELECT source FROM account_sources WHERE history_id = ?').get(row.id);
+    const permissions = db.prepare('SELECT matching, outreach FROM demo_preferences WHERE intake_id = ?').get(row.intake_id);
     return {
       id: row.id, fields: JSON.parse(revision?.payload ?? row.payload), confirmedAt: row.confirmed_at,
       version: revision?.version ?? 1, evidence: JSON.parse(revision?.evidence ?? row.payload),
+      source: source ? JSON.parse(source.source) : null,
+      sharing: Boolean(permissions?.matching || permissions?.outreach),
+      permissions: { matching: Boolean(permissions?.matching), outreach: Boolean(permissions?.outreach) },
     };
   };
 
@@ -85,6 +99,36 @@ export function openStore(filename, demoSnapshot) {
 
   const store = {
     close: () => db.close(),
+    draft(session) {
+      const row = db.prepare(`SELECT d.* FROM intake_drafts d JOIN intakes i ON i.id = d.intake_id
+        WHERE i.session_id = ? AND NOT EXISTS (SELECT 1 FROM histories h WHERE h.intake_id = i.id)
+        ORDER BY d.updated_at DESC, d.rowid DESC LIMIT 1`).get(session.id);
+      return row ? { id: row.intake_id, version: row.version, data: JSON.parse(row.payload), updatedAt: row.updated_at } : null;
+    },
+    saveDraft(session, id, input) {
+      if (!isUuid(input.operation) || !Number.isSafeInteger(input.version) || input.version < 0) throw new RequestError(400, 'Check the draft version.');
+      const data = readDraft(input.data), payload = JSON.stringify(data);
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        this.intake(session, id);
+        if (db.prepare('SELECT 1 FROM histories WHERE intake_id = ?').get(id)) throw new RequestError(409, 'This account has already been confirmed.');
+        const previous = db.prepare('SELECT * FROM intake_drafts WHERE intake_id = ?').get(id);
+        if (previous?.operation === input.operation) {
+          if (previous.payload !== payload) throw new RequestError(409, 'This draft action has already been used.');
+          db.exec('COMMIT'); return { id, version: previous.version, data, updatedAt: previous.updated_at };
+        }
+        if ((previous?.version ?? 0) !== input.version) throw new RequestError(409, 'This draft changed in another tab. Reopen the current draft.');
+        const updatedAt = timestamp(), version = input.version + 1;
+        db.prepare(`INSERT INTO intake_drafts VALUES (?, ?, ?, ?, ?) ON CONFLICT(intake_id)
+          DO UPDATE SET version=excluded.version, operation=excluded.operation, payload=excluded.payload, updated_at=excluded.updated_at`)
+          .run(id, version, input.operation, payload, updatedAt);
+        db.exec('COMMIT'); return { id, version, data, updatedAt };
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+    },
+    discardDraft(session, id) {
+      this.intake(session, id); db.prepare('DELETE FROM intake_drafts WHERE intake_id = ?').run(id);
+      return { discarded: true };
+    },
     reserveAnalysis(session) {
       db.prepare('DELETE FROM analysis_usage WHERE requested < ?').run(now() - 1800);
       if (db.prepare('SELECT count(*) AS n FROM analysis_usage WHERE session_id = ?').get(session.id).n >= 12) {
@@ -152,9 +196,12 @@ export function openStore(filename, demoSnapshot) {
       }
       const entry = readEntry(body.fields);
       const evidence = body.evidence === undefined ? entry : readEntry(body.evidence);
+      const source = readSource(body.source);
+      const permissions = body.permissions === undefined ? null : readPermissions(body.permissions);
+      validateEvidence(evidence, source);
       if (!Object.values(entry).some(Boolean)) throw new RequestError(400, 'Include at least one remembered detail.');
       const payload = JSON.stringify(entry);
-      const fingerprint = hash(body.evidence === undefined ? payload : JSON.stringify({ entry, evidence }));
+      const fingerprint = hash(source || permissions ? JSON.stringify({ entry, evidence, source, permissions }) : body.evidence === undefined ? payload : JSON.stringify({ entry, evidence }));
       db.exec('BEGIN IMMEDIATE');
       try {
         this.intake(session, intakeId);
@@ -168,8 +215,12 @@ export function openStore(filename, demoSnapshot) {
             .run(row.id, intakeId, payload, fingerprint, body.operation, row.confirmed_at);
           db.prepare('INSERT INTO history_revisions VALUES (?, 1, ?, ?, ?, ?)')
             .run(row.id, payload, body.operation, JSON.stringify(evidence), row.confirmed_at);
+          if (permissions) db.prepare('UPDATE demo_preferences SET matching = ?, outreach = ? WHERE intake_id = ?')
+            .run(Number(permissions.matching), Number(permissions.outreach), intakeId);
+          if (source) db.prepare('INSERT INTO account_sources VALUES (?, ?)').run(row.id, JSON.stringify(source));
+          db.prepare('DELETE FROM intake_drafts WHERE intake_id = ?').run(intakeId);
         }
-        const result = previous ? { id: row.id, fields: entry, evidence, confirmedAt: row.confirmed_at, version: 1 } : toHistory(row);
+        const result = toHistory({ ...row, intake_id: intakeId });
         db.exec('COMMIT');
         return result;
       } catch (error) {

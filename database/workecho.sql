@@ -1,5 +1,6 @@
 -- Apply to a dedicated WorkEcho PostgreSQL database (Neon recommended).
 -- The server connects as the table owner. Browser clients have no database credentials.
+create schema if not exists extensions;
 create extension if not exists pgcrypto with schema extensions;
 create table public.we_settings (key text primary key, value text not null);
 create table public.we_workers (id uuid primary key default gen_random_uuid(), recovery_hash text unique not null, created_at timestamptz not null default now());
@@ -8,7 +9,7 @@ create table public.we_staff (id uuid primary key default gen_random_uuid(), ema
 create table public.we_sessions (token_hash text primary key, worker_id uuid references public.we_workers, staff_id uuid references public.we_staff,
   expires timestamptz not null default now() + interval '12 hours', check (num_nonnulls(worker_id,staff_id) = 1));
 create table public.we_intakes (id uuid primary key default gen_random_uuid(), worker_id uuid not null references public.we_workers,
-  language text not null check(language in ('en','hi')), voice boolean not null, matching boolean not null, outreach boolean not null,
+  language text not null check(language in ('en','hi','kn')), voice boolean not null, matching boolean not null, outreach boolean not null,
   notice text not null default 'workecho-v2', created_at timestamptz not null default now());
 create table public.we_histories (id uuid primary key default gen_random_uuid(), intake_id uuid unique not null references public.we_intakes,
   worker_id uuid not null references public.we_workers, fields jsonb not null, evidence jsonb not null, version integer not null default 1,
@@ -28,9 +29,15 @@ create table public.we_events (id bigint generated always as identity primary ke
 create index we_events_target on public.we_events(target,id);
 create table public.we_operations (actor text not null, operation uuid not null, fingerprint text not null, result jsonb not null, primary key(actor,operation));
 create table public.we_limits (key text not null, bucket bigint not null, uses integer not null, primary key(key,bucket));
+create table public.we_sources (history_id uuid primary key references public.we_histories, source jsonb not null);
+create table public.we_drafts (intake_id uuid primary key references public.we_intakes, version integer not null,
+  operation uuid not null, payload jsonb not null, updated_at timestamptz not null default now());
+create index we_sessions_expiry on public.we_sessions(expires);
 
 create function public.we_record(h public.we_histories) returns jsonb language sql stable set search_path = '' as $$
- select jsonb_build_object('id',h.id,'fields',h.fields,'evidence',h.evidence,'version',h.version,'confirmedAt',h.confirmed_at,'sharing',h.matching or h.outreach);
+ select jsonb_build_object('id',h.id,'fields',h.fields,'evidence',h.evidence,'version',h.version,'confirmedAt',h.confirmed_at,
+   'sharing',h.matching or h.outreach,'permissions',jsonb_build_object('matching',h.matching,'outreach',h.outreach),
+   'source',(select s.source from public.we_sources s where s.history_id=h.id));
 $$;
 
 -- The application server supplies authenticated credentials. This RPC is callable only by service_role.
@@ -38,7 +45,7 @@ $$;
 create function public.we_api(p_action text, p_token text default '', p_input jsonb default '{}') returns jsonb
 language plpgsql security invoker set search_path = '' as $$
 declare
-  s public.we_sessions; h public.we_histories; j public.we_intakes; st public.we_staff; r public.we_referrals;
+  s public.we_sessions; h public.we_histories; j public.we_intakes; st public.we_staff; r public.we_referrals; d public.we_drafts;
   w uuid; new_id uuid; result jsonb; old_result public.we_operations; used integer; bucket_no bigint;
   v_token_hash text := encode(extensions.digest(coalesce(p_token,''),'sha256'),'hex');
   fp text := encode(extensions.digest(p_action || p_input::text,'sha256'),'hex');
@@ -99,8 +106,8 @@ begin
     end if;
     if p_action='staff_records' then
       return coalesce((select jsonb_agg(public.we_record(x) || jsonb_build_object('worker',x.worker_id,'matching',x.matching,'outreach',x.outreach,
-        'label','Worker ' || upper(left(x.worker_id::text,8)), 'quote',concat_ws(' · ',x.evidence->>'place',x.evidence->>'task',x.evidence->>'period',x.evidence->>'landmark',x.evidence->>'alias')) order by x.confirmed_at desc)
-        from public.we_histories x where x.matching or x.outreach),'[]');
+        'label','Worker ' || upper(left(x.worker_id::text,8)), 'quote',coalesce((select source->>'text' from public.we_sources where history_id=x.id),concat_ws(' · ',x.evidence->>'place',x.evidence->>'task',x.evidence->>'period',x.evidence->>'landmark',x.evidence->>'alias'))) order by x.confirmed_at desc)
+        from (select * from public.we_histories where matching or outreach order by confirmed_at desc limit 200) x),'[]');
     end if;
     if p_action='staff_decisions' then return coalesce((select jsonb_agg(to_jsonb(x)) from public.we_decisions x),'[]'); end if;
     if p_action='staff_referrals' then
@@ -148,6 +155,28 @@ begin
   end if;
   if s.worker_id is null then raise exception '401|Open your work history first.'; end if;
   w := s.worker_id;
+  if p_action='draft' then
+    select dd.* into d from public.we_drafts dd join public.we_intakes ii on ii.id=dd.intake_id
+      where ii.worker_id=w and not exists(select 1 from public.we_histories hh where hh.intake_id=ii.id)
+      order by dd.updated_at desc, dd.intake_id limit 1;
+    if d.intake_id is null then return 'null'::jsonb; end if;
+    return jsonb_build_object('id',d.intake_id,'version',d.version,'data',d.payload,'updatedAt',d.updated_at);
+  end if;
+  if p_action in ('draft_save','draft_discard') then
+    select * into j from public.we_intakes where id=(p_input->>'id')::uuid and worker_id=w for update;
+    if j.id is null then raise exception '404|Interview not found.'; end if;
+    if p_action='draft_discard' then delete from public.we_drafts where intake_id=j.id; return jsonb_build_object('discarded',true); end if;
+    if exists(select 1 from public.we_histories where intake_id=j.id) then raise exception '409|This account has already been confirmed.'; end if;
+    select * into d from public.we_drafts where intake_id=j.id;
+    if d.operation=(p_input->>'operation')::uuid then
+      if d.payload<>p_input->'data' then raise exception '409|This draft action was already used.'; end if;
+      return jsonb_build_object('id',d.intake_id,'version',d.version,'data',d.payload,'updatedAt',d.updated_at);
+    end if;
+    if coalesce(d.version,0)<>(p_input->>'version')::int then raise exception '409|This draft changed in another tab. Reopen the current draft.'; end if;
+    insert into public.we_drafts values(j.id,(p_input->>'version')::int+1,(p_input->>'operation')::uuid,p_input->'data',now())
+      on conflict(intake_id) do update set version=excluded.version,operation=excluded.operation,payload=excluded.payload,updated_at=excluded.updated_at returning * into d;
+    return jsonb_build_object('id',d.intake_id,'version',d.version,'data',d.payload,'updatedAt',d.updated_at);
+  end if;
   if p_action='recovery' then update public.we_workers set recovery_hash=p_input->>'recoveryHash' where id=w; return '{}'; end if;
   if p_action='intake' then
     if (select count(*) from public.we_intakes where worker_id=w and created_at>now()-interval '1 day')>=50 then raise exception '429|Daily history limit reached.'; end if;
@@ -177,9 +206,14 @@ begin
       if h.operation<>(p_input->>'operation')::uuid or h.fingerprint<>fp then raise exception '409|This interview has already been saved.'; end if;
       return public.we_record(h);
     end if;
+    if p_input ? 'permissions' then
+      update public.we_intakes set matching=(p_input->'permissions'->>'matching')::boolean,outreach=(p_input->'permissions'->>'outreach')::boolean where id=j.id returning * into j;
+    end if;
     insert into public.we_histories(intake_id,worker_id,fields,evidence,matching,outreach,operation,fingerprint)
       values(j.id,w,p_input->'fields',p_input->'evidence',j.matching,j.outreach,(p_input->>'operation')::uuid,fp) returning * into h;
     insert into public.we_revisions(history_id,version,fields,evidence,operation) values(h.id,1,h.fields,h.evidence,h.operation);
+    if p_input ? 'source' then insert into public.we_sources values(h.id,p_input->'source'); end if;
+    delete from public.we_drafts where intake_id=j.id;
     return public.we_record(h);
   end if;
   select * into h from public.we_histories where id=(p_input->>'id')::uuid and worker_id=w for update;
@@ -202,7 +236,7 @@ $$;
 
 -- Private by default. Only the server's service role can access records or call the RPC.
 do $$ declare t text; r text; begin
-  foreach t in array array['we_settings','we_workers','we_staff','we_sessions','we_intakes','we_histories','we_revisions','we_decisions','we_referrals','we_events','we_operations','we_limits'] loop
+  foreach t in array array['we_settings','we_workers','we_staff','we_sessions','we_intakes','we_histories','we_revisions','we_decisions','we_referrals','we_events','we_operations','we_limits','we_sources','we_drafts'] loop
     execute format('alter table public.%I enable row level security',t);
     execute format('revoke all on table public.%I from public',t);
     for r in select rolname from pg_roles where rolname in ('anon','authenticated') loop

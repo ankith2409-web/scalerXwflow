@@ -37,6 +37,25 @@ try {
     return {...saved.data,code:start.data.code};
   }
   const first=await worker(a), second=await worker(b); await worker(stranger,false);
+  for(const [initial,final] of [[true,false],[false,true]]){
+    const call=client();
+    const start=await call('/api/intakes','POST',{language:'kn',save:true,voice:false,matching:initial,outreach:initial});
+    const source={kind:'wispr-dictation',text:Object.values(fields).join('\n'),aiAllowed:false};
+    const data={language:'kn',mode:'story',page:'review',step:0,source,fields,evidence:fields,permissions:{matching:final,outreach:false}};
+    const payload={version:0,operation:randomUUID(),data};const path='/api/intakes/'+start.data.id+'/draft';
+    const draft=await call(path,'POST',payload);assert.equal(draft.status,200,JSON.stringify(draft));assert.equal(draft.data.version,1);
+    assert.deepEqual((await call(path,'POST',payload)).data,draft.data);
+    assert.equal((await call(path,'POST',{...payload,operation:randomUUID()})).status,409);
+    assert.equal((await call('/api/draft')).data.data.language,'kn');
+    assert.equal((await stranger(path,'DELETE')).status,404);
+    const confirmed={fields,evidence:fields,source,permissions:{matching:final,outreach:false},confirmed:true,operation:randomUUID()};
+    const saved=await call('/api/intakes/'+start.data.id+'/confirm','POST',confirmed);
+    assert.equal(saved.status,200,JSON.stringify(saved));assert.equal(saved.data.permissions.matching,final);assert.equal(saved.data.source.text,source.text);
+    assert.equal((await call('/api/draft')).data,null);
+    assert.equal((await call(path,'POST',{...payload,version:1,operation:randomUUID()})).status,409);
+    assert.equal((await call('/api/intakes/'+start.data.id+'/confirm','POST',{...confirmed,permissions:{matching:!final,outreach:false}})).status,409);
+    if(final)await call('/api/history/'+saved.data.id+'/sharing','DELETE');
+  }
   assert.equal((await a('/api/staff/records')).status,401);
   assert.equal((await b('/api/history/'+first.id,'PATCH',{fields,confirmed:true,operation:randomUUID(),version:1})).status,404);
   const signin=await staff('/api/staff/session','POST',{email:'admin@example.test',password:'a long test password',setupCode:setup});
@@ -71,6 +90,8 @@ try {
   await assert.rejects(db.query('select * from public.we_histories'));
   await assert.rejects(db.query("select public.we_api('history','','{}')"));
   await db.exec('reset role;');
+  await db.exec(await readFile(new URL('../database/migrations/002-workflow-quality.sql',import.meta.url),'utf8'));
+  assert.equal((await recovered('/api/history')).data[0].fields.task,'Polished stone');
   console.log('PostgreSQL checks passed: separate clients, privacy, bootstrap login, matching, referral approval, withdrawal, recovery, revision conflicts, and denied anonymous database access.');
 } catch(error) { console.error('PostgreSQL verification failed:',error.message,error.detail??'',error.where??'',error.position??'',error.internalQuery??''); if(error.query && error.position)console.error(error.query.slice(Math.max(0,Number(error.position)-120),Number(error.position)+120)); process.exitCode=1; }
 finally {await db.close();}

@@ -51,3 +51,27 @@ test('hosted worker and staff state survives separate function requests and clea
   assert.equal((await call('/api/session', 'DELETE'))[0], 200);
   assert.equal(cookies.size, 0);
 });
+
+test('explicit judge demo bypasses the production database and keeps its source private',async()=>{
+  process.env.DATABASE_URL='postgres://unused-invalid-test-connection';
+  process.env.WORKECHO_DEMO_KEY=randomBytes(32).toString('base64url');
+  const cookies=new Map(),origin='https://workecho.example';
+  const call=async(path,method='GET',data)=>{
+    const response=await api.fetch(new Request(origin+'/api/demo/'+path,{method,headers:{origin,'content-type':'application/json',cookie:[...cookies].map(([k,v])=>k+'='+v).join('; ')},body:data?JSON.stringify(data):undefined}));
+    for(const value of response.headers.getSetCookie()){const [pair]=value.split(';');const i=pair.indexOf('=');cookies.set(pair.slice(0,i),pair.slice(i+1));}
+    return {status:response.status,data:await response.json()};
+  };
+  try{
+    assert.equal((await call('session')).data.demo,true);
+    assert.equal((await call('wispr/status')).data.available,false);
+    const start=await call('intakes','POST',{language:'en',voice:false,save:true,matching:false,outreach:false});assert.equal(start.status,201);
+    const fields={place:'Fictional yard',task:null,period:null,landmark:null,alias:null};
+    const source={kind:'example',text:'Fictional yard'};
+    const saved=await call('intakes/'+start.data.id+'/confirm','POST',{confirmed:true,operation:randomUUID(),fields,evidence:fields,source,permissions:{matching:false,outreach:false}});
+    assert.equal(saved.status,200,JSON.stringify(saved));
+    assert.equal((await call('history')).data[0].source.text,'Fictional yard');
+    assert.equal((await call('staff/session','POST')).status,200);
+    assert.ok((await call('staff/overview')).data.matches.length>0);
+    assert.equal(cookies.has('we_cloud_worker'),false);
+  }finally{delete process.env.DATABASE_URL;}
+});

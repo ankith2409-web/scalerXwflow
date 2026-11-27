@@ -7,7 +7,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isUuid, openStore, RequestError, SESSION_SECONDS } from './store.mjs';
 import { captureFormat, transcribe } from './speech.mjs';
 import { WORKSPACE_SECONDS } from './workspace-auth.mjs';
-import { extractAccount } from './intelligence.mjs';
+import { extractAccount, translateReview } from './intelligence.mjs';
+import { interfaceLanguages } from './account.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const audioTypes = new Set(['audio/webm', 'audio/ogg', 'audio/mp4']);
@@ -54,7 +55,7 @@ async function json(req) {
 
 export function createRequestHandler(db, {
   speechKey = process.env.SARVAM_API_KEY?.trim(),
-  speech = transcribe, appOrigin = process.env.APP_ORIGIN, secureCookies = process.env.SECURE_COOKIES === '1', workspace = false,
+  speech = transcribe, appOrigin = process.env.APP_ORIGIN, secureCookies = process.env.SECURE_COOKIES === '1', workspace = false, aiKey = process.env.WORKECHO_AI_ENABLED === '1' ? process.env.OPENAI_API_KEY ?? '' : '',
 } = {}) {
   const cookie = (res, value, maxAge, name = 'we_session') => res.appendHeader('Set-Cookie',
     name + '=' + value + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + maxAge + (secureCookies ? '; Secure' : ''));
@@ -83,14 +84,14 @@ export function createRequestHandler(db, {
         const session = db.getSession(readCookie(workerCookie));
 
         if (path === '/api/session' && method === 'GET') {
-          return send(res, 200, { active: Boolean(session), voiceAvailable: Boolean(speechKey), workspace });
+          return send(res, 200, { active: Boolean(session), voiceAvailable: Boolean(speechKey), analysisAvailable: Boolean(aiKey), workspace, demo: !workspace });
         }
         if (workspace && path === '/api/session/restore' && method === 'POST') {
           const { code } = await json(req);
           const value = db.workspace.resume(code);
           if (session && db.getSession(value)?.id !== session.id) db.signOut(session);
           cookie(res, value, WORKSPACE_SECONDS, workerCookie);
-          return send(res, 200, { active: true, voiceAvailable: Boolean(speechKey), workspace });
+          return send(res, 200, { active: true, voiceAvailable: Boolean(speechKey), analysisAvailable: Boolean(aiKey), workspace });
         }
         if (workspace && path === '/api/session/recovery-code' && method === 'POST') {
           if (!session) throw new RequestError(401, 'Open your work history first.');
@@ -104,7 +105,7 @@ export function createRequestHandler(db, {
         }
         if (path === '/api/intakes' && method === 'POST') {
           const data = await json(req);
-          if (!['en', 'hi'].includes(data.language) || typeof data.voice !== 'boolean' || data.save !== true ||
+          if (!interfaceLanguages.includes(data.language) || typeof data.voice !== 'boolean' || data.save !== true ||
             ['matching', 'outreach'].some((key) => data[key] !== undefined && typeof data[key] !== 'boolean')) {
             throw new RequestError(400, 'Choose a language and agree to save the work history.');
           }
@@ -142,6 +143,7 @@ export function createRequestHandler(db, {
           }
           if (!active) throw new RequestError(401, 'Sign in to the staff workspace.');
           const scope = workspace ? db.workspace.staffScope() : session;
+          if (path === '/api/staff/overview' && method === 'GET') return send(res, 200, { records: workspace ? db.demo.records(scope) : [], matches: db.demo.candidates(scope), referrals: db.demo.referrals(scope), window: null });
           if (workspace && method === 'GET' && path === '/api/staff/records') return send(res, 200, db.demo.records(scope));
           if (method === 'GET' && path === '/api/staff/matches') return send(res, 200, db.demo.candidates(scope));
           if (method === 'GET' && path === '/api/staff/referrals') return send(res, 200, db.demo.referrals(scope));
@@ -150,18 +152,29 @@ export function createRequestHandler(db, {
           if (method === 'POST' && area === 'referrals' && operation === 'transition') return send(res, 200, db.demo.transition(scope, target, await json(req)));
         }
         if (!session) throw new RequestError(401, 'This session has ended. Start a new work history.');
+        if (path === '/api/draft' && method === 'GET') return send(res, 200, db.draft(session));
+        const [, draftId] = path.match(/^\/api\/intakes\/([^/]+)\/draft$/) ?? [];
+        if (isUuid(draftId)) {
+          if (method === 'POST') return send(res, 200, db.saveDraft(session, draftId, await json(req)));
+          if (method === 'DELETE') return send(res, 200, db.discardDraft(session, draftId));
+        }
         if (path === '/api/history' && method === 'GET') return send(res, 200, db.history(session));
         const [, sharingId] = path.match(/^\/api\/history\/([^/]+)\/sharing$/) ?? [];
         if (workspace && method === 'DELETE' && isUuid(sharingId)) return send(res, 200, db.stopSharing(session, sharingId));
         const [, historyId] = path.match(/^\/api\/history\/([^/]+)$/) ?? [];
         if (method === 'PATCH' && isUuid(historyId)) return send(res, 200, db.revise(session, historyId, await json(req)));
-        const [, id, action] = path.match(/^\/api\/intakes\/([^/]+)\/(confirm|turns|extract)$/) ?? [];
+        const [, id, action] = path.match(/^\/api\/intakes\/([^/]+)\/(confirm|turns|extract|translate)$/) ?? [];
         if (method === 'POST' && isUuid(id)) {
           if (action === 'extract') {
             db.intake(session, id);
             db.reserveAnalysis(session, id);
-            const { transcript } = await json(req);
-            return send(res, 200, await extractAccount(transcript));
+            const { transcript, allowAI } = await json(req);
+            return send(res, 200, await extractAccount(transcript, { key: allowAI === true ? aiKey : '' }));
+          }
+          if (action === 'translate') {
+            db.intake(session, id); db.reserveAnalysis(session, id);
+            const { fields, language, allowAI } = await json(req);
+            return send(res, 200, await translateReview(fields, language, { key: allowAI === true ? aiKey : '' }));
           }
           if (action === 'confirm') return send(res, 200, db.confirm(session, id, await json(req)));
           if (action === 'turns') {
@@ -202,8 +215,17 @@ export function createRequestHandler(db, {
 export function createApp({ dbPath = resolve('.data/workecho.sqlite'), ...options } = {}) {
   if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
   const db = openStore(dbPath);
-  const server = createServer(createRequestHandler(db, options));
-  server.on('close', () => db.close());
+  const handler = createRequestHandler(db, options), demoDb = openStore(':memory:');
+  const demoHandler = createRequestHandler(demoDb, { ...options, workspace: false, speechKey: '', aiKey: '' });
+  const server = createServer((req, res) => {
+    if (req.url.startsWith('/api/demo/')) {
+      req.url = '/api/' + req.url.slice('/api/demo/'.length);
+      if (req.url === '/api/wispr/status') return send(res, 200, { available: false, connected: false });
+      return demoHandler(req, res);
+    }
+    return handler(req, res);
+  });
+  server.on('close', () => { db.close(); demoDb.close(); });
   return server;
 }
 

@@ -1,0 +1,13 @@
+export const fieldKeys = ['place', 'task', 'period', 'landmark', 'alias'] as const;
+export type Field = typeof fieldKeys[number];
+export type Fields = Record<Field, string | null>;
+export const emptyFields = (): Fields => ({ place: null, task: null, period: null, landmark: null, alias: null });
+export type Locale = 'en' | 'hi' | 'kn';
+export type Permissions = { matching: boolean; outreach: boolean };
+export type Source = { kind: 'typed' | 'wispr-dictation' | 'wispr-notetaker' | 'example'; text: string; meetingId: string | null; analysis: 'model' | 'rules' | 'manual'; language: string | null; aiAllowed: boolean };
+export type DraftData = { language: Locale; page: 'capture' | 'review'; mode: 'story' | 'guided'; step: number; source: Source; fields: Fields; evidence: Fields; permissions: Permissions };
+export type Draft = { id: string; version: number; updatedAt: string; data: DraftData };
+export type History = { id: string; version: number; fields: Fields; evidence: Fields; source: Source | null; permissions: Permissions; sharing: boolean; confirmedAt: string };
+export type Session = { active: boolean; workspace: boolean; cloud?: boolean; demo?: boolean; analysisAvailable?: boolean; embeddingsAvailable?: boolean };
+export type Page = 'capture' | 'review' | 'history' | 'saved' | 'restore';
+export const blankDraft = (language: Locale): DraftData => ({ language, page: 'capture', mode: 'story', step: 0, source: { kind: 'typed', text: '', meetingId: null, analysis: 'manual', language: null, aiAllowed: false }, fields: emptyFields(), evidence: emptyFields(), permissions: { matching: false, outreach: false } });

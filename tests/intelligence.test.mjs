@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { extractAccount } from '../server/intelligence.mjs';
+import { extractAccount, translateReview } from '../server/intelligence.mjs';
 import { createCloudHandler } from '../server/cloud.mjs';
 
 test('labelled import preserves uncertain dates and never guesses missing fields',async()=>{
@@ -9,13 +9,39 @@ test('labelled import preserves uncertain dates and never guesses missing fields
   assert.equal(result.fields.alias,null); assert.equal(result.needsReview,true);
   assert.deepEqual(result.evidence,result.fields);
   const plain=await extractAccount('I worked somewhere before lockdown.',{key:''});
-  assert.ok(Object.values(plain.fields).every(value=>value===null));
+  assert.equal(plain.fields.place,null); assert.equal(plain.fields.period,'before lockdown');
 });
 test('AI proposals discard hallucinations and quote only source evidence',async()=>{
   const result=await extractAccount('I cut stone near Jodhpur before lockdown.',{key:'test',fetcher:async()=>Response.json({choices:[{message:{content:JSON.stringify({place:'Jodhpur',task:'cut stone',period:'2018–2020',landmark:'railway crossing',alias:null})}}]})});
   assert.equal(result.fields.place,'Jodhpur'); assert.equal(result.fields.period,null); assert.equal(result.fields.landmark,null);
-  await assert.rejects(extractAccount('account',{key:'test',fetcher:async()=>new Response('',{status:429})}),{status:503});
+  const unavailable=await extractAccount('account',{key:'test',fetcher:async()=>new Response('',{status:429})});
+  assert.equal(unavailable.reason,'model-unavailable'); assert.equal(unavailable.method,'rules');
   await assert.rejects(extractAccount('x'.repeat(12001),{key:''}),{status:400});
+});
+
+test('natural story yields exact source excerpts without a model key',async()=>{
+  const text='I cut stone slabs at Raju shed near the railway crossing in Jodhpur for two monsoons before lockdown.';
+  const result=await extractAccount(text,{key:''});
+  assert.deepEqual(result.fields,{place:'Jodhpur',task:'cut stone slabs',period:'two monsoons before lockdown',landmark:'railway crossing',alias:'Raju shed'});
+  assert.deepEqual(result.missing,[]);assert.equal(result.method,'rules');
+  for(const value of Object.values(result.fields))assert.ok(text.includes(value));
+});
+
+test('Hindi and Kannada labels preserve source script and unknown details',async()=>{
+  for(const [text,place,language] of [['स्थान: जोधपुर\nकाम: पत्थर काटना','जोधपुर','hi'],['ಸ್ಥಳ: ಜೋಧಪುರ\nಕೆಲಸ: ಕಲ್ಲು ಕತ್ತರಿಸುವುದು','ಜೋಧಪುರ','kn']]){
+    const result=await extractAccount(text,{key:''});assert.equal(result.fields.place,place);assert.equal(result.language,language);assert.equal(result.fields.alias,null);
+  }
+});
+
+test('translations are separate, preserve nulls and fall back on refusal or malformed replies',async()=>{
+  const fields={place:'Jodhpur',task:'cut stone',period:'two monsoons',landmark:null,alias:null};
+  let called=0;
+  const fetcher=async()=>{called++;return Response.json({choices:[{message:{content:JSON.stringify({...fields,task:'पत्थर काटना',landmark:'invented'})}}]});};
+  const none=await translateReview(fields,'hi',{key:'',fetcher});assert.equal(none.available,false);assert.equal(called,0);
+  const translated=await translateReview(fields,'hi',{key:'test',fetcher});assert.equal(translated.fields.landmark,null);assert.equal(fields.task,'cut stone');assert.equal(translated.fields.task,'पत्थर काटना');
+  for(const message of [{refusal:'Unavailable'},{content:'invalid JSON'}]){
+    const result=await translateReview(fields,'kn',{key:'test',fetcher:async()=>Response.json({choices:[{message}]})});assert.equal(result.available,false);assert.deepEqual(result.fields,fields);
+  }
 });
 test('cloud requests enforce origin, ownership, confirmation and server-side staff authorization',async()=>{
   const calls=[];

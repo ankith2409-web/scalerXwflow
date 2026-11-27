@@ -43,13 +43,20 @@ export default {
   async fetch(request) {
     const incoming = new URL(request.url);
     const incomingRoute = incoming.pathname === '/api/workecho' ? incoming.searchParams.get('route') : null;
-    const incomingPath = incomingRoute ? '/api/' + incomingRoute.replace(/^\/+/, '') : incoming.pathname;
+    let incomingPath = incomingRoute ? '/api/' + incomingRoute.replace(/^\/+/, '') : incoming.pathname;
+    const demo = incomingPath.startsWith('/api/demo/');
+    if (demo) {
+      incomingPath = '/api/' + incomingPath.slice('/api/demo/'.length);
+      request = new Request(new URL(incomingPath, incoming.origin), request);
+      if (incomingPath === '/api/wispr/status') return Response.json({ available: false, connected: false });
+      if (incomingPath.startsWith('/api/wispr/')) return error(403, 'Account connections are disabled in the fictional demo.');
+    }
     if (incomingPath.startsWith('/api/wispr/')) {
       const { createWisprHandler } = await import('../server/wispr.mjs');
       return createWisprHandler({secret:process.env.WORKECHO_DEMO_KEY,origin:process.env.APP_ORIGIN??'https://workecho-psi.vercel.app'})
         (new Request(new URL(incomingPath + incoming.search, incoming.origin),request));
     }
-    if (process.env.DATABASE_URL) {
+    if (!demo && process.env.DATABASE_URL) {
       const { createNeonHandler } = await import('../server/neon.mjs');
       const source = new URL(request.url);
       const route = source.pathname === '/api/workecho' ? source.searchParams.get('route') : null;
@@ -58,11 +65,13 @@ export default {
       if (!process.env.APP_ORIGIN) return error(503,'The workspace origin is not configured.');
       try {
         const handler = await createNeonHandler();
-        return await handler(new Request(new URL(path,source.origin), request));
+        const headers = new Headers(request.headers);
+        headers.set('x-workecho-client', request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() || 'global');
+        return await handler(new Request(new URL(path,source.origin), new Request(request, { headers })));
       } catch { return error(503,'The workspace is temporarily unavailable. Your unsaved text is still on screen.'); }
     }
     // A configured backend owns durable records. Cookie snapshots are only the isolated rehearsal mode.
-    if (process.env.WORKECHO_BACKEND_URL) {
+    if (!demo && process.env.WORKECHO_BACKEND_URL) {
       const backend = process.env.WORKECHO_BACKEND_URL.replace(/\/$/, '');
       if (!/^https:\/\/[a-z0-9]+\.supabase\.co\/functions\/v1\/workecho$/.test(backend)) return error(503, 'The workspace backend is not configured correctly.');
       const source = new URL(request.url);
@@ -102,7 +111,7 @@ export default {
       const headers = new Headers();
       let status = 500;
       let body;
-      await createRequestHandler(db, { appOrigin: url.origin, secureCookies: true, speechKey: '', workspace: false })(input, {
+      await createRequestHandler(db, { appOrigin: url.origin, secureCookies: true, speechKey: '', aiKey: '', workspace: false })(input, {
         appendHeader: (name, value) => headers.append(name, value),
         setHeader: (name, value) => headers.set(name, value),
         writeHead(code, options) {

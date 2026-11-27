@@ -122,7 +122,7 @@ export function staffDemo(db, { toHistory, timestamp, RequestError, hash, isUuid
 
   function fromRow(row, label) {
     const history = toHistory(row);
-    return { id: history.id, person: { label, ...history, quote: Object.values(history.evidence).filter(Boolean).join(' · ') },
+    return { id: history.id, person: { label, ...history, quote: history.source?.text || Object.values(history.evidence).filter(Boolean).join(' · ') },
       outreach: Boolean(row.outreach), matching: Boolean(row.matching), owner: row.owner };
   }
 

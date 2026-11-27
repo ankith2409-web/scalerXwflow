@@ -7,7 +7,7 @@ import { Brand, Dialog, Skeleton, Spinner } from './ui';
 type Account = { label: string; fields: Entry; quote: string };
 type RecordItem = Account & { id: string; version: number; outreach: boolean; matching: boolean; referral: boolean };
 type Candidate = { id: string; left: Account; right: Account; status: string; version: number; reason: string;
-  outreach: boolean; eligible: boolean; conflict: boolean; overlap: string; clues: string[]; referral: boolean; rulesVersion: number };
+  outreach: boolean; eligible: boolean; conflict: boolean; overlap: string; clues: string[]; referral: boolean; rulesVersion: number; semanticSimilarity?: number };
 type Referral = { id: string; label: string; status: string; version: number; outreach: boolean; actions: string[];
   events: { status: string; reason: string; actor: string; at: string }[] };
 const states: Record<string, string> = { waiting: 'Needs review', unresolved: 'Unresolved', accepted: 'Link accepted',
@@ -44,15 +44,13 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
   const [message, setMessage] = useState('');
   const title = referralsPage ? 'Referral follow-up' : 'Workplace review';
   const heading = useRef<HTMLHeadingElement>(null);
+  const demoSuffix = new URLSearchParams(location.search).get('demo') === '1' ? '?demo=1' : '';
 
   async function load(local = workspace) {
-    const [nextMatches, nextReferrals, nextRecords] = await Promise.all([
-      request<Candidate[]>('/api/staff/matches'), request<Referral[]>('/api/staff/referrals'),
-      local ? request<RecordItem[]>('/api/staff/records') : Promise.resolve([]),
-    ]);
-    setMatches(nextMatches);
-    setReferrals(nextReferrals);
-    setRecords(nextRecords);
+    const overview = await request<{ matches: Candidate[]; referrals: Referral[]; records: RecordItem[] }>('/api/staff/overview');
+    setMatches(overview.matches);
+    setReferrals(overview.referrals);
+    setRecords(local ? overview.records : []);
   }
 
   async function run(action: () => Promise<void>) {
@@ -101,7 +99,7 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     if (next === referralsPage) return;
-    history.pushState(null, '', next ? '/staff/referrals' : '/staff/review');
+    history.pushState(null, '', (next ? '/staff/referrals' : '/staff/review') + demoSuffix);
     setSelection('');
     setError('');
     setMessage('');
@@ -126,13 +124,13 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
 
   return <div className="site staff-site" lang="en">
     <header className="header"><div className="header-inner staff-head">
-      <Brand />
-      <a className="quiet" href="/"><ArrowLeft size={18} aria-hidden="true" />Worker view</a>
+      <Brand onHome={demoSuffix ? () => location.assign('/' + demoSuffix) : undefined}/>
+      <a className="quiet" href={'/' + demoSuffix}><ArrowLeft size={18} aria-hidden="true" />Worker view</a>
     </div></header>
     <div className="staff-shell">
       <aside className="staff-side"><nav aria-label="Staff workspace">
-        <a href="/staff/review" aria-current={!referralsPage ? 'page' : undefined} onClick={(event) => navigate(event, false)}><GitCompare size={19} aria-hidden="true" />Workplace review</a>
-        <a href="/staff/referrals" aria-current={referralsPage ? 'page' : undefined} onClick={(event) => navigate(event, true)}><ClipboardCheck size={19} aria-hidden="true" />Referrals</a>
+        <a href={'/staff/review' + demoSuffix} aria-current={!referralsPage ? 'page' : undefined} onClick={(event) => navigate(event, false)}><GitCompare size={19} aria-hidden="true" />Workplace review</a>
+        <a href={'/staff/referrals' + demoSuffix} aria-current={referralsPage ? 'page' : undefined} onClick={(event) => navigate(event, true)}><ClipboardCheck size={19} aria-hidden="true" />Referrals</a>
       </nav>
       {active && <div className="staff-session">
         <button className="quiet" disabled={busy} onClick={() => void run(async () => {
@@ -201,6 +199,8 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
             <div className="panel-heading"><h2 id="compare-title">{current.conflict ? 'Conflicting workplace details' : 'Possible shared workplace'}</h2><span className="tag">{states[current.status]}</span></div>
             <div className="evidence-cards motion-detail" key={current.id}><AccountCard item={current.left} /><AccountCard item={current.right} /></div>
             <div className="evidence-note"><h3>Evidence</h3><p>{current.clues.join(' · ')}</p>
+              {current.semanticSimilarity !== undefined && <p>Model ranking score: {current.semanticSimilarity.toFixed(3)}. This is text similarity, not a probability of a shared workplace.</p>}
+              {cloud && <p className="muted">Review covers the 200 most recent shared records. Optional AI ranking uses up to 40 consenting records; staff verify every link.</p>}
               {current.conflict && <p className="conflict-text">The confirmed locations differ. Keep these histories separate.</p>}
               <p><strong>Employment overlap</strong> {current.overlap === 'overlap' ? 'Supported by the reported years.' : current.overlap === 'separate' ? 'The reported periods are separate.' : 'Unknown from the reported time details.'}</p>
               {current.reason && <p><strong>Decision reason</strong> {current.reason}</p>}
