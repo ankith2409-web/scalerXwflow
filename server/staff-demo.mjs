@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { compare } from './workplace-rules.mjs';
+export { compare } from './workplace-rules.mjs';
 
 const account = (label, place, task, period, landmark, alias, quote) => ({
   label, fields: { place, task, period, landmark, alias }, quote, version: 1,
@@ -12,49 +14,6 @@ const comparisons = {
   c: account('Worker C', 'Jaipur, Rajasthan', 'Cut stone slabs', null, 'Near the bus stand',
     'Raju’s stone shed', 'Raju’s shed was by the Jaipur bus stand. I don’t remember the year.'),
 };
-
-const normalize = (value) => (value ?? '').normalize('NFKC').toLowerCase().replace(/[’']/g, '').trim();
-const localities = [['jodhpur', 'जोधपुर'], ['jaipur', 'जयपुर']];
-function locality(place) {
-  const text = normalize(place);
-  return localities.find((variants) => variants.some((item) => item === variants[0]
-    ? new RegExp('\\b' + item + '\\b').test(text) : text.includes(item)))?.[0] ?? text;
-}
-
-function landmark(value) {
-  const text = normalize(value);
-  if (/railway crossing|rail crossing|रेलवे (?:क्रॉसिंग|फाटक)|रेल फाटक/.test(text)) return 'railway crossing';
-  return text;
-}
-
-function yearRange(value) {
-  const match = normalize(value).match(/^((?:19|20)\d{2})(?:\s*[-–]\s*((?:19|20)\d{2}))?$/);
-  if (!match) return null;
-  const start = Number(match[1]);
-  const end = Number(match[2] ?? match[1]);
-  return start <= end ? [start, end] : null;
-}
-
-export function compare(left, right) {
-  const a = left.fields;
-  const b = right.fields;
-  const aLocality = locality(a.place);
-  const bLocality = locality(b.place);
-  const samePlace = Boolean(aLocality && aLocality === bLocality);
-  const alias = Boolean(normalize(a.alias) && normalize(a.alias) === normalize(b.alias));
-  const sharedLandmark = Boolean(landmark(a.landmark) && landmark(a.landmark) === landmark(b.landmark));
-  const conflict = Boolean(aLocality && bLocality && !samePlace);
-  const aYears = yearRange(a.period);
-  const bYears = yearRange(b.period);
-  const overlap = !aYears || !bYears ? 'unknown' : aYears[0] <= bYears[1] && bYears[0] <= aYears[1] ? 'overlap' : 'separate';
-  const clues = [];
-  if (samePlace) clues.push('Same locality');
-  if (sharedLandmark) clues.push('Matching landmark phrase');
-  if (alias) clues.push('Shared name or nickname');
-  if (normalize(a.task) && normalize(a.task) === normalize(b.task)) clues.push('Similar task');
-  return { clues, overlap, conflict, eligible: samePlace && (alias || sharedLandmark),
-    show: (samePlace && (alias || sharedLandmark)) || (conflict && alias) };
-}
 
 export const nextStates = {
   draft: ['approved', 'cancelled'], approved: ['invited', 'cancelled'],

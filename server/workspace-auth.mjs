@@ -23,6 +23,15 @@ export function workspaceAuth(db, { RequestError, hash, issueSession }) {
 
   return {
     hasStaff: () => Boolean(setup()),
+    changePassword(currentPassword,password,credential) {
+      const current=setup(),time=now();attempts=attempts.filter(value=>value>time-300);
+      if(attempts.length>=10)throw new RequestError(429,'Wait five minutes before trying again.');
+      if(typeof currentPassword!=='string'||typeof password!=='string'||password.trim().length<12||password.length>128||password===currentPassword)throw new RequestError(400,'Use a different passphrase of 12–128 characters.');
+      if(!current||!timingSafeEqual(derive(currentPassword,current.salt),Buffer.from(current.passphrase_hash,'hex'))){attempts.push(time);throw new RequestError(401,'Check your current passphrase.');}
+      const salt=randomBytes(32).toString('hex');
+      db.prepare('UPDATE local_staff SET salt=?,passphrase_hash=? WHERE id=1').run(salt,derive(password,salt).toString('hex'));
+      db.prepare('DELETE FROM local_staff_sessions WHERE token_hash<>?').run(hash(credential));attempts=[];return {changed:true};
+    },
     staffScope: () => {
       const owner = setup();
       return owner ? { id: owner.session_id, workspace: true } : null;

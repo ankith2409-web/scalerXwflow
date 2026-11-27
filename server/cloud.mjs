@@ -116,6 +116,17 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
       if (path.startsWith('/api/staff/')) {
         const staffSession = await rpc('staff_session',staff);
         if (!staffSession.active) throw new RequestError(401,'Sign in to the staff workspace.');
+        if (path==='/api/staff/password' && method==='POST') {
+          const {currentPassword,password}=await json(request);
+          if (typeof currentPassword!=='string'||Buffer.byteLength(currentPassword)>72||typeof password!=='string'||password.length<12||Buffer.byteLength(password)>72||password===currentPassword) throw new RequestError(400,'Use a different password of 12–72 bytes.');
+          return respond(await rpc('staff_password',staff,{currentPassword,password}));
+        }
+        if (path==='/api/staff/search' && method==='GET') {
+          const query=requestUrl.searchParams.get('query')??'',page=Number(requestUrl.searchParams.get('page')??0),size=25;
+          if(query.length>100||!Number.isSafeInteger(page)||page<0||page>100000)throw new RequestError(400,'Check your search and page.');
+          const result=await rpc('staff_search',staff,{query,page,size});
+          return respond({...result,records:result.records.map(item=>({...item,id:item.id+':'+item.version+':direct'}))});
+        }
         if (path==='/api/staff/accounts' && method==='POST') {
           const {email,password,role}=await json(request);
           if (typeof email!=='string'||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254||typeof password!=='string'||password.length<12||Buffer.byteLength(password)>72||!['admin','reviewer','health'].includes(role)) throw new RequestError(400,'Enter a valid email, role and a password of 12–72 bytes.');
@@ -173,6 +184,11 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
       const sharing=path.match(/^\/api\/history\/([\w-]+)\/sharing$/);
       if (sharing && uuid(sharing[1]) && method==='DELETE') return respond(await rpc('withdraw',worker,{id:sharing[1]}));
       const history=path.match(/^\/api\/history\/([\w-]+)$/);
+      if(history&&uuid(history[1])&&method==='DELETE'){
+        const data=await json(request);
+        if(data.confirmed!==true||!Number.isSafeInteger(data.version)||data.version<1)throw new RequestError(400,'Confirm deletion of the current record.');
+        return respond(await rpc('delete_history',worker,{id:history[1],version:data.version}));
+      }
       const intake=path.match(/^\/api\/intakes\/([\w-]+)\/(confirm|turns|extract|translate)$/);
       if (history && uuid(history[1]) && method==='PATCH' || intake && uuid(intake[1]) && intake[2]==='confirm' && method==='POST') {
         const data=await json(request); const fields=entry(data.fields);

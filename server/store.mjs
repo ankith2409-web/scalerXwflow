@@ -256,6 +256,19 @@ export function openStore(filename, demoSnapshot) {
         throw error;
       }
     },
+    deleteHistory(session, historyId, input) {
+      if(input.confirmed!==true||!Number.isSafeInteger(input.version)||input.version<1)throw new RequestError(400,'Confirm deletion of the current record.');
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const row=db.prepare(`SELECT histories.* FROM histories JOIN intakes ON intakes.id=histories.intake_id WHERE histories.id=? AND intakes.session_id=?`).get(historyId,session.id);
+        if(!row)throw new RequestError(404,'History not found.');
+        if(toHistory(row).version!==input.version)throw new RequestError(409,'This history changed. Review it before deletion.');
+        for(const table of ['demo_events','demo_decisions','demo_referrals'])db.prepare(`DELETE FROM ${table} WHERE instr(${table==='demo_events'?'target':'candidate'},?)>0`).run(historyId);
+        db.prepare('DELETE FROM histories WHERE id=?').run(historyId);
+        db.prepare('DELETE FROM intakes WHERE id=?').run(row.intake_id);
+        db.exec('COMMIT');return {deleted:true};
+      }catch(error){db.exec('ROLLBACK');throw error;}
+    },
     revise(session, historyId, body) {
       if (!isUuid(body.operation) || body.confirmed !== true || !Number.isSafeInteger(body.version)) {
         throw new RequestError(400, 'Confirm the corrected history before saving.');

@@ -5,6 +5,7 @@ import { request, jsonPost, usePlayback } from './voice';
 import { Dialog, Skeleton, Spinner } from './ui';
 import { fieldKeys, type Fields, type History, type Locale } from './workspace/types';
 import { useWorkspace } from './workspace/useWorkspace';
+import { privacyCopy } from './workspace/privacy-copy';
 import './style.css';
 import './rebuilt.css';
 const WisprImport = lazy(() => import('./wispr-import').then(module => ({ default: module.WisprImport })));
@@ -20,6 +21,7 @@ function Workspace() {
   const [dialog, setDialog] = useState<'flow' | 'discard' | 'switch' | null>(null), [kept, setKept] = useState(false);
   const [notetaker, setNotetaker] = useState(false), [recovery, setRecovery] = useState('');
   const [translation, setTranslation] = useState<Fields | null>(null);
+  const [deleting,setDeleting]=useState<History|null>(null),p=privacyCopy[d.language];
   const editor = useRef<HTMLTextAreaElement>(null), heading = useRef<HTMLHeadingElement>(null);
   const voice = usePlayback(d.language);
   const demo = new URLSearchParams(location.search).get('demo') === '1', suffix = demo ? '?demo=1' : '';
@@ -55,7 +57,7 @@ function Workspace() {
       <button className="v2-text" onClick={() => void navigator.clipboard.writeText(w.code).then(() => { w.setNotice(t.copied); setKept(true); }).catch(() => w.setNotice(t.recoveryHelp))}>{t.copy}</button>
       <button className="v2-outline" onClick={returnCard}><Download size={17}/>{t.downloadCard}</button>
     </div></>}
-    <button className="v2-text" disabled={w.busy} onClick={() => { if (window.confirm(t.rotateWarning)) { setKept(false); void w.rotate(); } }}>{t.rotateCode}</button>
+    <button className="v2-text" disabled={w.busy} onClick={() => { if (window.confirm(t.rotateWarning+' '+p.rotate)) { setKept(false); void w.rotate(); } }}>{t.rotateCode}</button>
   </section>; }
   function draftStatus() { return <span className={'v2-draft-status ' + w.draftState} role="status">{w.draftState === 'saving' ? t.autosaving : w.draftState === 'saved' ? t.draftSaved : w.draftState === 'error' ? <>{t.draftNotSaved}<button className="v2-text" onClick={() => void w.run(() => w.flush())}>{t.retry}</button></> : w.draftState === 'conflict' ? <>{t.conflict}<button className="v2-text" onClick={() => void w.run(w.reloadDraft)}>{t.reloadDraft}</button></> : t.draftConsent}</span>; }
   return <div className="v2">
@@ -129,7 +131,7 @@ function Workspace() {
             <dl>{fieldKeys.map((key, i) => <div key={key}><dt>{t.fields[i]}</dt><dd>{row.fields[key] ?? t.missing}</dd></div>)}</dl>
             <details><summary>{t.source}</summary><blockquote>{row.source?.text ?? t.noSource}</blockquote></details>
             <div className="v2-permission-summary"><span>{t.consentMatch}: {row.permissions.matching ? '✓' : '—'}</span><span>{t.consentOutreach}: {row.permissions.outreach ? '✓' : '—'}</span></div>
-            <div className="v2-actions"><button className="v2-text" disabled={w.busy} onClick={() => w.correct(row)}>{t.correct}</button>{row.sharing && <button className="v2-text" disabled={w.busy} onClick={() => { if (window.confirm(t.withdrawConfirm)) void w.withdraw(row); }}>{t.withdraw}</button>}</div>
+            <div className="v2-actions"><button className="v2-text" disabled={w.busy} onClick={() => w.correct(row)}>{t.correct}</button>{row.sharing && <button className="v2-text" disabled={w.busy} onClick={() => { if (window.confirm(t.withdrawConfirm)) void w.withdraw(row); }}>{t.withdraw}</button>}<button className="v2-text v2-danger" disabled={w.busy} onClick={()=>setDeleting(row)}>{p.remove}</button></div>
           </article>) : <div className="v2-empty"><Folder size={30}/><h2>{t.empty}</h2><p>{t.emptySignedOut}</p><div className="v2-actions"><button className="v2-primary" onClick={newJob}>{t.newJob}</button>{w.session?.workspace && <button className="v2-outline" onClick={() => w.go('restore')}>{t.restore}</button>}</div></div>}</div>
           {recoveryPanel()}
           {!!w.records.length && <div className="v2-actions"><button className="v2-primary" onClick={newJob}><Plus size={18}/>{t.newJob}</button><button className="v2-text" onClick={() => download('workecho-history.txt', recordText(w.records))}><Download size={17}/>{t.export}</button>{demo && <a href="/staff/review?demo=1">{t.demoStaff}</a>}</div>}
@@ -140,6 +142,7 @@ function Workspace() {
       </div>
     </main>
     {dialog === 'flow' && <Dialog title={t.flowTitle} closeLabel={t.close} onClose={() => setDialog(null)}><p>{t.flowHelp}</p><ol className="v2-flow-steps">{t.flowSteps.map(step => <li key={step}>{step}</li>)}</ol><div className="v2-actions"><button className="v2-primary" onClick={() => { w.update({ source: { ...d.source, kind: 'wispr-dictation' } }); setDialog(null); setTimeout(() => editor.current?.focus(), 0); }}>{t.focus}</button><a href="https://wisprflow.ai/download" target="_blank" rel="noreferrer">{t.getFlow}</a></div></Dialog>}
+    {deleting&&<Dialog title={p.title} closeLabel={t.close} onClose={()=>{if(!w.busy)setDeleting(null);}}><p>{p.help}</p><div className="v2-actions"><button className="v2-primary v2-delete" disabled={w.busy} onClick={()=>void w.removeRecord(deleting).then(()=>setDeleting(null))}>{w.busy&&<Spinner/>}{p.confirm}</button><button className="v2-text" disabled={w.busy} onClick={()=>setDeleting(null)}>{t.cancel}</button></div></Dialog>}
     {dialog === 'discard' && <Dialog title={t.discardTitle} closeLabel={t.close} onClose={() => setDialog(null)}><p>{t.discardHelp}</p><div className="v2-actions"><button className="v2-primary" disabled={w.busy} onClick={() => { setDialog(null); void w.newJob(); }}>{t.discard}</button><button className="v2-text" onClick={() => setDialog(null)}>{t.cancel}</button></div></Dialog>}
     {dialog === 'switch' && <Dialog title={t.switchTitle} closeLabel={t.close} onClose={() => setDialog(null)}><p>{t.switchHelp}</p>{recoveryPanel()}<label className="v2-check"><input type="checkbox" checked={kept} onChange={e => setKept(e.target.checked)}/>{t.codeKept}</label><div className="v2-actions"><button className="v2-primary" disabled={w.busy || (w.session?.workspace && !kept)} onClick={() => { void w.closeWorker().then(() => setDialog(null)); }}>{t.finishWorker}</button><button className="v2-text" onClick={() => setDialog(null)}>{t.cancel}</button></div></Dialog>}
   </div>;

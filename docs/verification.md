@@ -17,10 +17,11 @@ AI remains disabled at the owner's request. The adapters are implemented and pro
 
 ## Checks
 
-- `npm test`: 19 tests passed locally, covering workflows, consent, ownership, evidence, stale writes, recovery, referral transitions, embeddings and OAuth.
+- `npm test`: 38 tests passed locally, covering workflows, consent, ownership, evidence, stale writes, recovery, referral transitions, embeddings, OAuth, private record deletion, password changes and 17 synthetic matching checks.
 - `npm run build`: TypeScript and Vite production build passed.
 - `npm run test:cloud`: production schema, HTTP handler and additive migration passed together on PGlite PostgreSQL 0.3.16. Includes staff roles, anonymous denial, drafts, final consent, source preservation, correction and referral cancellation.
 - `npm run test:browser`: real Chromium checks desktop/mobile flows and reports no uncaught browser exceptions. Requires PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH.
+- Maintenance checks exercise search across 230 synthetic archived records, page boundaries, literal search, password and recovery session revocation, and deletion with linked-data cleanup. Browser checks include an interrupted draft save and retry, reduced motion, Escape cancellation before deletion, confirmed deletion, staff search and password changes. Browser plugin not available; these checks use the Chromium/CDP fallback.
 - Neon migration is checked first on the isolated workecho-quality-v2 branch before production application.
 - `docker compose config --quiet` passes. [GitHub Actions run 45965963180](https://github.com/ankith2409-web/scalerXwflow/actions/runs/45965963180) built the image, started the container and passed the keyless workflow smoke test. Local Docker Desktop remains unavailable. CI uses Ubuntu 24.04 because the pinned Playwright 1.56.1 does not support the Ubuntu 26.04 image now used by ubuntu-latest.
 
@@ -28,4 +29,4 @@ AI remains disabled at the owner's request. The adapters are implemented and pro
 
 The app is a working prototype. It does not guarantee every spoken language, perfect extraction, a verified shared workplace, medical diagnosis or automated outreach. Basic parsing is deliberately limited; unknown details require review. Worker UI supports three languages; staff UI uses English. Real Wispr OAuth sign-in, dictation and target-worker usability still need real-account and human testing. AI extraction, translation and embedding ranking are optional, disabled, and never replace confirmation or access controls.
 
-Hosted fictional demo cookies have bounded capacity and expire after 30 minutes. Shared staff review covers the latest 200 records. Optional model ranking considers up to 40 records with both AI and comparison permission. Earlier records can lack the full source because the old app did not store it.
+Hosted fictional demo cookies have bounded capacity and expire after 30 minutes. Staff search covers all shared histories with pagination; comparison review covers the latest 200 records. Optional model ranking considers up to 40 records with both AI and comparison permission. Earlier records can lack the full source because the old app did not store it. The matching suite uses curated synthetic cases, not a real-worker accuracy benchmark. Forgotten staff-password recovery, whole-account deletion, full offline sync, backup-restore rehearsal and alert routing remain outstanding; see docs/operations.md.

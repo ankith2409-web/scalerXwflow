@@ -128,6 +128,11 @@ export function useWorkspace() {
   function correct(row: History) { operation.current = null; finalized.current = true; setRevision(row); setData({ ...blankDraft(data.language), page: 'review', source: row.source ?? blankDraft(data.language).source, fields: row.fields, evidence: row.evidence, permissions: row.permissions }); go('review'); }
   async function withdraw(row: History) { await run(async () => { await request('/api/history/' + row.id + '/sharing', { method: 'DELETE' }); setRecords(rows => rows.map(item => item.id === row.id ? { ...item, sharing: false, permissions: { matching: false, outreach: false } } : item)); setNotice(t.withdrawn); }); }
   async function rotate() { await run(async () => { const value = await request<{ code: string }>('/api/session/recovery-code', { method: 'POST' }); setCode(value.code); }); }
+  async function removeRecord(row:History){await run(async()=>{
+    await request('/api/history/'+row.id,{...jsonPost({confirmed:true,version:row.version}),method:'DELETE'});
+    setRecords(rows=>rows.filter(item=>item.id!==row.id));
+    if(finalized.current){setData(blankDraft(latest.current.language));setRevision(null);intake.current='';saved.current='';}
+  });}
   async function savePermission(allowed: boolean) {
     if (allowed) { setConsent(true); return; }
     await run(async () => {
@@ -139,5 +144,5 @@ export function useWorkspace() {
       } finally { paused.current = false; }
     });
   }
-  return { data, update, page, go, move, session, ready, consent, savePermission, code, records, revision, busy, notice, setNotice, t, draftState, hasContent, run, flush, prepare, confirm, newJob, openHistory, reloadDraft, restore, closeWorker, correct, withdraw, rotate, unfinished: Boolean((hasContent && !finalized.current) || (revision && JSON.stringify(data.fields) !== JSON.stringify(revision.fields))) };
+  return { data, update, page, go, move, session, ready, consent, savePermission, code, records, revision, busy, notice, setNotice, t, draftState, hasContent, run, flush, prepare, confirm, newJob, openHistory, reloadDraft, restore, closeWorker, correct, withdraw, rotate, removeRecord, unfinished: Boolean((hasContent && !finalized.current) || (revision && JSON.stringify(data.fields) !== JSON.stringify(revision.fields))) };
 }

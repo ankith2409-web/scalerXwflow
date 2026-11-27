@@ -18,7 +18,7 @@ From Notetaker on the hosted app connects your account through OAuth with PKCE a
 2. Choose saving, comparison sharing and follow-up independently.
 3. Review place, work, approximate time, landmark and name. Unknown details stay blank.
 4. Confirm the final sharing choices and save the job with its complete original account. Download a private return card with the recovery code.
-5. Reopen, correct, export or withdraw sharing. Corrections preserve the source; withdrawal cancels pending referrals. Use “Start a different worker” to separate sessions.
+5. Reopen, correct, export, withdraw sharing or permanently delete a job. Corrections preserve the source; deletion removes its source and related review/follow-up records after confirmation. Rotating a recovery code also signs out other devices. Use “Start a different worker” to separate sessions.
 
 Drafts are saved only after explicit saving permission. Reload restores the private draft; stale writes from a second tab show a conflict and stop saving. Worker text is not kept in localStorage. The final confirmation atomically stores the latest sharing choices, fields and source, including retry checks.
 
@@ -36,9 +36,9 @@ Embeddings require both comparison sharing and AI permission on each record. Onl
 
 Local Docker mode stores SQLite records on a volume and lets the first staff user create a passphrase. The hosted backend uses Neon PostgreSQL with individual accounts, expiring sessions, reviewer/health/admin roles, audit events, atomic writes and version checks. Only worker-shared histories are visible to staff. Referrals require outreach permission and an approval step. Invitations and appointments are performed outside WorkEcho and logged here.
 
-The first cloud administrator needs a one-time setup code kept outside this repository. Database credentials and OAuth access tokens never appear in browser code. Fresh schema: database/workecho.sql. Existing installations: database/migrations/002-workflow-quality.sql. The additive migration preserves histories and introduces sources and versioned drafts. Test migrations on an isolated Neon branch first.
+The first cloud administrator needs a one-time setup code kept outside this repository. The owner has chosen to leave this setup pending. Signed-in staff can change their password using the current password, revoking other sessions. Database credentials and OAuth access tokens never appear in browser code. Fresh schema: database/workecho.sql. Existing installations: apply database/migrations/002-workflow-quality.sql, then database/migrations/003-privacy-and-search.sql once in order. The migrations install schema and function definitions; they do not execute record deletion. Test migrations on an isolated Neon branch first.
 
-Staff use one overview request instead of three repeated queries. Review is bounded to the 200 most recent shared records; this is a prototype limit, not a claim of complete population matching. Approval and outreach permissions are checked server-side.
+Staff use an overview request for comparison/referral data and a paginated search request for shared histories. Literal search reaches all shared records in pages of 25; comparison review remains bounded to the 200 most recent shared records. Approval, deletion ownership and outreach permissions are checked server-side. Operations and recovery guidance: docs/operations.md.
 
 ## Judge demo
 

@@ -10,10 +10,10 @@ async function client(t) {
   t.after(() => new Promise(resolve => server.close(resolve)));
   const origin = 'http://127.0.0.1:' + server.address().port;
   const createClient = () => {
-    let cookie = '';
+    const cookies=new Map();
     return async (path, method = 'GET', data) => {
-      const r = await fetch(origin + path, { method, headers: { origin, cookie, 'content-type': 'application/json' }, body: data === undefined ? undefined : JSON.stringify(data) });
-      for (const item of r.headers.getSetCookie()) if (item.startsWith('we_local_worker=')) cookie = item.split(';')[0];
+      const r = await fetch(origin + path, { method, headers: { origin, cookie:[...cookies].map(([k,v])=>k+'='+v).join('; '), 'content-type': 'application/json' }, body: data === undefined ? undefined : JSON.stringify(data) });
+      for (const item of r.headers.getSetCookie()){const pair=item.split(';')[0],i=pair.indexOf('=');if(pair.slice(i+1))cookies.set(pair.slice(0,i),pair.slice(i+1));else cookies.delete(pair.slice(0,i));}
       return { status: r.status, data: await r.json() };
     };
   };
@@ -34,6 +34,28 @@ test('final sharing choices override intake choices atomically and retain the co
     assert.deepEqual(retry, result);
     assert.equal((await call('/api/intakes/' + started.data.id + '/confirm', 'POST', { ...body, permissions: { matching: !final, outreach: false } })).status, 409);
   }
+});
+
+test('deletion requires ownership, explicit confirmation and the latest version',async t=>{
+  const {call,another}=await client(t);
+  async function start(c){const job=await c('/api/intakes','POST',{language:'en',save:true,voice:false,matching:true,outreach:true});return c('/api/intakes/'+job.data.id+'/confirm','POST',{confirmed:true,operation:randomUUID(),fields,evidence:fields,source});}
+  const row=await start(call);await start(another);const path='/api/history/'+row.data.id;
+  assert.equal((await another(path,'DELETE',{confirmed:true,version:1})).status,404);
+  assert.equal((await call(path,'DELETE',{confirmed:false,version:1})).status,400);
+  assert.equal((await call(path,'DELETE',{confirmed:true,version:2})).status,409);
+  assert.equal((await call(path,'DELETE',{confirmed:true,version:1})).status,200);
+  assert.deepEqual((await call('/api/history')).data,[]);assert.equal((await another('/api/history')).data.length,1);
+});
+
+test('local staff password changes require the old password and search is authenticated',async t=>{
+  const {call,another}=await client(t);assert.equal((await call('/api/staff/search')).status,401);
+  assert.equal((await call('/api/staff/session','POST',{passphrase:'old staff test passphrase'})).status,200);
+  assert.equal((await call('/api/staff/password','POST',{currentPassword:'wrong',password:'new staff test passphrase'})).status,401);
+  assert.equal((await call('/api/staff/password','POST',{currentPassword:'old staff test passphrase',password:'new staff test passphrase'})).status,200);
+  assert.equal((await another('/api/staff/session','POST',{passphrase:'old staff test passphrase'})).status,401);
+  assert.equal((await another('/api/staff/session','POST',{passphrase:'new staff test passphrase'})).status,200);
+  assert.equal((await another('/api/staff/search?query=none&page=0')).data.total,0);
+  assert.equal((await another('/api/staff/search?page=-1')).status,400);
 });
 
 test('drafts restore with a session, enforce ownership and reject stale writes', async t => {
