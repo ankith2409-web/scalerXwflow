@@ -93,7 +93,7 @@ begin
       input_data:=input_data||jsonb_build_object('workplaceVersion',workplace.version,'workplaceSnapshot',case when workplace.id is not null then jsonb_build_object('name',workplace.data->>'name','locality',workplace.data->>'locality') else null end);
     end if;
     if kind='case' then
-      if not staff_view or not h.outreach or not exists(select 1 from public.we_staff where id=(input_data->>'assigneeId')::uuid and active) then raise exception '403|Follow-up permission and an active case owner are required.'; end if;
+      if not staff_view or not h.outreach or not exists(select 1 from public.we_staff where id::text=input_data->>'assigneeId' and active) then raise exception '403|Follow-up permission and an active case owner are required.'; end if;
     end if;
     if kind not in ('workplace','details','link','case') then raise exception '400|Invalid feature.'; end if;
     if coalesce(item.version,0)<>(p_input->>'version')::int or (item.id is not null and (item.kind<>kind or item.history_id is distinct from v_history_id)) then raise exception '409|This information changed. Reopen it before saving.'; end if;
