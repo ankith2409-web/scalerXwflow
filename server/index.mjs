@@ -121,7 +121,7 @@ export function createRequestHandler(db, {
           const credential=readCookie(workspace?'we_local_staff':'we_staff');
           const active=workspace?db.workspace.signedIn(credential):db.demo.signedIn(session,credential);
           if(route.staff?!active:!session) throw new RequestError(401,route.staff?'Sign in to the staff workspace.':'Open your work history first.');
-          const actor={staff:route.staff,workspace,workerId:session?.id,scope:workspace?'local':session.id,memberId:workspace?'local-staff':'demo-staff',label:workspace?'Local staff':'Demo staff'};
+          const actor={staff:route.staff,workspace,workerId:session?.id,scope:workspace?'local':session.id,memberId:workspace?'local-staff':'demo-staff',label:route.staff?(workspace?'Local staff':'Demo staff'):'Worker'};
           const result=db.features.run(actor,route.action,route.input);
           if(route.action==='download') {
             const file=featureDownload(result);res.writeHead(200,{'Content-Type':file.mime,'Content-Disposition':"attachment; filename*=UTF-8''"+encodeURIComponent(file.filename)});return res.end(file.bytes);

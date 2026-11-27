@@ -10,7 +10,8 @@ import jsQR from './vendor/jsQR.cjs';
 const executable=process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
 const skipOfflineReload=process.env.WORKECHO_SKIP_OFFLINE_RELOAD==='1';
 if(!executable)throw new Error('Set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to Chromium.');
-const profile=await mkdtemp(join(tmpdir(),'workecho-browser-'));
+const profileRoot=resolve(process.env.WORKECHO_BROWSER_PROFILE_ROOT??tmpdir());
+const profile=await mkdtemp(join(profileRoot,'workecho-browser-'));
 const server=createApp({dbPath:':memory:',workspace:true,speechKey:''});server.listen(0,'127.0.0.1');await once(server,'listening');
 const origin='http://127.0.0.1:'+server.address().port;
 const chrome=spawn(executable,['--headless=new','--no-sandbox','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{windowsHide:true,stdio:['ignore','ignore','pipe']});
@@ -56,13 +57,16 @@ try{
   const qr=await evaluate(`(()=>{const s=document.querySelector('dialog .feature-qr');return {size:s.viewBox.baseVal.width,path:s.querySelector('path').getAttribute('d')}})()`),scale=8,width=qr.size*scale,pixels=new Uint8ClampedArray(width*width*4);pixels.fill(255);
   for(const match of qr.path.matchAll(/M(\d+),(\d+)h1v1h-1z/g)){const x=Number(match[1])*scale,y=Number(match[2])*scale;for(let a=0;a<scale;a++)for(let b=0;b<scale;b++){const index=((y+a)*width+x+b)*4;pixels[index]=pixels[index+1]=pixels[index+2]=0;}}
   assert.equal(jsQR(pixels,width,width)?.data,origin+'/#recovery='+code);await evaluate(`document.querySelector('dialog .icon-button').click()`);
+  const beforeLostResponse=(await api('/api/draft')).version;let dropped=false;
+  const dropResponse=({data})=>{const event=JSON.parse(data);if(event.method!=='Fetch.requestPaused')return;if(!dropped&&event.params.responseStatusCode===200){dropped=true;void send('Fetch.failRequest',{requestId:event.params.requestId,errorReason:'ConnectionClosed'});}else void send('Fetch.continueRequest',{requestId:event.params.requestId});};
+  socket.addEventListener('message',dropResponse);await send('Fetch.enable',{patterns:[{urlPattern:'*/api/intakes/*/draft',requestStage:'Response'}]});await evaluate(`document.querySelector('#allow-outreach').click()`);await wait(`document.querySelector('.v2-draft-status.error')`);await send('Fetch.disable');socket.removeEventListener('message',dropResponse);assert.ok(dropped);assert.equal((await api('/api/draft')).version,beforeLostResponse+1);await click('Try again');await wait(`document.querySelector('.v2-draft-status.saved')`);assert.equal((await api('/api/draft')).version,beforeLostResponse+1);await evaluate(`document.querySelector('#allow-outreach').click()`);await wait(`fetch('/api/draft').then(r=>r.json()).then(d=>d?.data?.permissions?.outreach===false)`);
   if(!skipOfflineReload){await wait(`navigator.serviceWorker.controller`);await evaluate(`document.querySelector('.feature-device').open=true`);await fill('#device-passphrase','browser device test passphrase');await evaluate(`document.querySelector('.feature-device input[type="checkbox"]').click()`);await click('Enable device draft');await wait(`document.querySelector('.feature-device').textContent.includes('Device draft enabled')`);}
   else console.log('Local offline reload skipped: CacheStorage is unavailable in this Windows runtime; Linux CI must run the complete check.');
   assert.equal(await evaluate(`getComputedStyle(document.querySelector('.v2-content')).animationDuration`),'0s');
   await send('Network.emulateNetworkConditions',{offline:true,latency:0,downloadThroughput:-1,uploadThroughput:-1});
   await evaluate(`document.querySelector('#allow-outreach').click()`);await wait(`document.querySelector('.v2-draft-status.error')`);
   assert.equal(await evaluate(`document.querySelector('#work-account').value`),story);
-  if(!skipOfflineReload){await wait(`document.querySelector('.feature-device').textContent.includes('Encrypted draft saved on this device')`);await pause(650);await send('Page.reload');await wait(`document.querySelector('#work-account')`);await evaluate(`document.querySelector('.feature-device').open=true`);await fill('#device-passphrase','browser device test passphrase');await click('Unlock device draft');await wait(`document.querySelector('#work-account')?.value===${JSON.stringify(story)}`);}
+  if(!skipOfflineReload){await wait(`document.querySelector('.feature-device').textContent.includes('Encrypted draft saved on this device')`);await pause(650);await send('Page.reload');await wait(`document.querySelector('#work-account')?.value===''`);await evaluate(`document.querySelector('.feature-device').open=true`);await fill('#device-passphrase','browser device test passphrase');await click('Unlock device draft');await wait(`document.querySelector('#work-account')?.value===${JSON.stringify(story)}`);}
   await send('Network.emulateNetworkConditions',{offline:false,latency:0,downloadThroughput:-1,uploadThroughput:-1});
   await wait(`document.querySelector('.v2-draft-status.saved')`);
   await evaluate(`document.querySelector('#allow-outreach').click()`);
@@ -118,9 +122,9 @@ try{
   assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth'),true);
   await click('Referrals');assert.ok(await evaluate(`location.search==='?demo=1'`));
   assert.deepEqual(errors,[]);
-  console.log('Chromium passed: three interface languages, genuine Flow readiness, natural-story extraction, source retention after correction, mobile action visibility, reload-safe drafts, final consent back-edit, private recovery, staff sign-in, isolated demo, route preservation, responsive layout and no browser exceptions.');
+  console.log('Chromium passed: languages, Flow readiness, private QR round trip, lost-response retry without duplicate saves, encrypted offline reload/unlock/reconnect, timeline dates, private attachment upload, printable PDF, source-preserving correction, recovery, workplace directory/link, case assignment, responsive layout and no browser exceptions.'+(skipOfflineReload?' Offline reload was explicitly skipped in this environment.':''));
   console.log('Screenshot:',screenshotPath);
 }finally{
   socket?.close();chrome.kill();await new Promise(resolve=>server.close(resolve));await pause(500);
-  if(dirname(resolve(profile)).toLowerCase()===resolve(tmpdir()).toLowerCase()&&profile.includes('workecho-browser-'))await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100}).catch(()=>{});
+  if(dirname(resolve(profile)).toLowerCase()===profileRoot.toLowerCase()&&profile.includes('workecho-browser-'))await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100}).catch(()=>{});
 }

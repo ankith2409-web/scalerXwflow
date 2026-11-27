@@ -28,6 +28,7 @@ export async function featureContract({worker,staff,stranger}){
   assert.equal((await staff('/api/features/cases?q=Fictional')).data.total,1);
   const bytes=Buffer.from('%PDF-1.4\nFictional attachment test\n%%EOF\n'),upload={operation:randomUUID(),historyVersion:1,filename:'fictional.pdf',mime:'application/pdf',base64:bytes.toString('base64'),caption:'Synthetic fixture',shared:false};
   const file=await worker(path+'/attachments','POST',upload);assert.equal(file.status,200,JSON.stringify(file));assert.equal(file.data.data.base64,undefined);
+  assert.equal(file.data.actor,'Worker');
   assert.equal((await staff('/api/features/workplaces','POST',{id:file.data.id,version:1,data:directory})).status,409);
   assert.deepEqual((await worker(path+'/attachments','POST',upload)).data,file.data);
   assert.equal((await staff(path+'?view=staff')).data.attachments.length,0);
