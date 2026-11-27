@@ -77,3 +77,20 @@ test('explicit judge demo bypasses the production database and keeps its source 
     assert.equal(cookies.has('we_cloud_worker'),false);
   }finally{delete process.env.DATABASE_URL;}
 });
+
+test('hosted routing forwards search and page parameters while removing its internal route parameter',async()=>{
+  const originalFetch=globalThis.fetch,oldDb=process.env.DATABASE_URL,oldBackend=process.env.WORKECHO_BACKEND_URL;
+  delete process.env.DATABASE_URL;process.env.WORKECHO_BACKEND_URL='https://workechotest.supabase.co/functions/v1/workecho';
+  globalThis.fetch=async(url)=>{
+    const target=new URL(url);assert.equal(target.pathname,'/functions/v1/workecho/api/staff/search');
+    assert.equal(target.searchParams.get('query'),'Jodhpur & quarry');assert.equal(target.searchParams.get('page'),'2');assert.equal(target.searchParams.has('route'),false);
+    return Response.json({records:[],page:2,total:51});
+  };
+  try{
+    const response=await api.fetch(new Request('https://workecho.example/api/workecho?route=staff/search&query=Jodhpur%20%26%20quarry&page=2'));
+    assert.equal(response.status,200);assert.equal((await response.json()).page,2);
+  }finally{
+    globalThis.fetch=originalFetch;if(oldDb===undefined)delete process.env.DATABASE_URL;else process.env.DATABASE_URL=oldDb;
+    if(oldBackend===undefined)delete process.env.WORKECHO_BACKEND_URL;else process.env.WORKECHO_BACKEND_URL=oldBackend;
+  }
+});

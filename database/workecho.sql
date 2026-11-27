@@ -113,7 +113,8 @@ begin
         'total',(select count(*) from public.we_histories x where (matching or outreach) and
           strpos(lower(concat_ws(' ',fields->>'place',fields->>'task',fields->>'period',fields->>'landmark',fields->>'alias')),lower(p_input->>'query'))>0),
         'records',coalesce((select jsonb_agg(public.we_record(x)||jsonb_build_object('label','Worker '||upper(left(x.worker_id::text,8)),
-          'quote',coalesce((select source->>'text' from public.we_sources where history_id=x.id),''),'matching',x.matching,'outreach',x.outreach)) from
+          'quote',coalesce((select source->>'text' from public.we_sources where history_id=x.id),''),'matching',x.matching,'outreach',x.outreach,
+          'referral',exists(select 1 from public.we_referrals rr where rr.history_id=x.id and rr.history_version=x.version))) from
           (select * from public.we_histories where (matching or outreach) and
             strpos(lower(concat_ws(' ',fields->>'place',fields->>'task',fields->>'period',fields->>'landmark',fields->>'alias')),lower(p_input->>'query'))>0
             order by confirmed_at desc,id limit (p_input->>'size')::int offset (p_input->>'page')::int*(p_input->>'size')::int) x),'[]'));

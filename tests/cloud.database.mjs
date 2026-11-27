@@ -117,6 +117,7 @@ try {
   assert.equal((await client()('/api/session/restore','POST',{code:replacement.data.code})).status,200);
   const extraTarget=extraRecord.id+':1:direct';
   assert.equal((await staff('/api/staff/referrals/'+extraTarget+'/transition','POST',{status:'draft',version:1,reason:'Fictional deletion test.',operation:randomUUID()})).status,200);
+  assert.equal((await staff('/api/staff/search?query=Jodhpur&page=0')).data.records.find(row=>row.id===extraTarget).referral,true);
   assert.equal((await stranger('/api/history/'+extraRecord.id,'DELETE',{confirmed:true,version:1})).status,404);
   assert.equal((await extra('/api/history/'+extraRecord.id,'DELETE',{confirmed:true,version:2})).status,409);
   assert.equal((await extra('/api/history/'+extraRecord.id,'DELETE',{confirmed:true,version:1})).status,200);
