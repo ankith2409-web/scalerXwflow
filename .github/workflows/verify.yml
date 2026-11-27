@@ -27,6 +27,7 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/workecho-postgres" --no-save --package-lock=false @electric-sql/pglite@0.3.16
           PGLITE_ROOT="$RUNNER_TEMP/workecho-postgres/node_modules/@electric-sql/pglite" npm run test:cloud
+          PGLITE_ROOT="$RUNNER_TEMP/workecho-postgres/node_modules/@electric-sql/pglite" node tests/migration-audit.database.mjs
       - name: Chromium workflows
         run: |
           npx playwright install --with-deps chromium
