@@ -13,7 +13,7 @@ AI remains disabled at the owner's request. The adapters are implemented and pro
 | New job confused with new worker | Separate controls and session closure with code-retention acknowledgement | Browser separate-worker closure and private-code recovery |
 | Empty preview and distant mobile action | Removed empty side preview, question route and sticky action | 390px mobile action within viewport, 1440px desktop and overflow checks |
 | Weak errors and empty/saved states | Signed-out empty state, retry/conflict actions, preserved text and clear follow-up explanation | Browser signed-out history; API ownership, rate-limit and model-unavailable tests |
-| Submission source and staff demo incomplete | Docker setup, default-branch publication, isolated fictional staff demo and CI | Compose config passes locally; remote CI verifies build/start; check run status before claiming Docker success |
+| Submission source and staff demo incomplete | Docker setup, default-branch publication, isolated fictional staff demo and CI | Compose config passes; remote Docker build, keyless startup and workflow smoke test passed |
 
 ## Checks
 
@@ -22,7 +22,7 @@ AI remains disabled at the owner's request. The adapters are implemented and pro
 - `npm run test:cloud`: production schema, HTTP handler and additive migration passed together on PGlite PostgreSQL 0.3.16. Includes staff roles, anonymous denial, drafts, final consent, source preservation, correction and referral cancellation.
 - `npm run test:browser`: real Chromium checks desktop/mobile flows and reports no uncaught browser exceptions. Requires PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH.
 - Neon migration is checked first on the isolated workecho-quality-v2 branch before production application.
-- `docker compose config --quiet` passes. The local Docker engine is unavailable; full container execution is delegated to the checked-in GitHub Actions workflow, and must be reported using its actual result.
+- `docker compose config --quiet` passes. [GitHub Actions run 45965963180](https://github.com/ankith2409-web/scalerXwflow/actions/runs/45965963180) built the image, started the container and passed the keyless workflow smoke test. Local Docker Desktop remains unavailable. CI uses Ubuntu 24.04 because the pinned Playwright 1.56.1 does not support the Ubuntu 26.04 image now used by ubuntu-latest.
 
 ## Practical limits
 

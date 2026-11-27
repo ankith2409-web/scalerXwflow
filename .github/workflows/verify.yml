@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   application:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
@@ -25,15 +25,15 @@ jobs:
       - run: npm run build
       - name: PostgreSQL integration
         run: |
-          npm install --no-save --package-lock=false @electric-sql/pglite@0.3.16
-          PGLITE_ROOT="$GITHUB_WORKSPACE/node_modules/@electric-sql/pglite" npm run test:cloud
+          npm install --prefix "$RUNNER_TEMP/workecho-postgres" --no-save --package-lock=false @electric-sql/pglite@0.3.16
+          PGLITE_ROOT="$RUNNER_TEMP/workecho-postgres/node_modules/@electric-sql/pglite" npm run test:cloud
       - name: Chromium workflows
         run: |
           npx playwright install --with-deps chromium
           export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node --input-type=module -e "import {chromium} from 'playwright';console.log(chromium.executablePath())")"
           npm run test:browser
   docker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6

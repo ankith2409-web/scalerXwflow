@@ -50,7 +50,7 @@ Use Node.js 24.12 or newer. Run `npm ci`, `npm run build`, then `npm start`. Loc
 
 `npm test` checks ownership, consent, conflicts, idempotency, referrals, evidence and OAuth using a provider double. `node tests/chromium.browser.mjs` checks the rebuilt interface when PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH points to Chromium. `npm run test:cloud` checks production SQL with PGlite when PGLITE_ROOT points to @electric-sql/pglite 0.3.16.
 
-Verification details and the ten-issue fix matrix are in docs/verification.md. Automated checks cover backend workflows, provider failures, consent, ownership and OAuth; PostgreSQL checks run the production SQL and HTTP handler together. Chromium checks use a real headless browser. Compose configuration validates. Full Docker image launch is unverified because the local engine is unavailable. Live model inference remains disabled by owner choice. Real Wispr account authorization, multilingual dictation quality and target-worker usability require real-account/device testing.
+Verification details and the ten-issue fix matrix are in docs/verification.md. Automated checks cover backend workflows, provider failures, consent, ownership and OAuth; PostgreSQL checks run the production SQL and HTTP handler together. Chromium checks use a real headless browser. A fresh Docker image built and passed keyless startup, confirmation, source persistence and recovery in GitHub Actions. Live model inference remains disabled by owner choice. Real Wispr account authorization, multilingual dictation quality and target-worker usability require real-account/device testing.
 
 ## Submission
 
