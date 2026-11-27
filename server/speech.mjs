@@ -1,4 +1,4 @@
-import { RequestError } from './store.mjs';
+import { RequestError } from './errors.mjs';
 
 export function captureFormat(type, buffer) {
   const prefix = buffer.subarray(0, 4);

@@ -1,0 +1,66 @@
+name: Verify WorkEcho
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  application:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: PostgreSQL integration
+        run: |
+          npm install --prefix "$RUNNER_TEMP/workecho-postgres" --no-save --package-lock=false @electric-sql/pglite@0.3.16
+          PGLITE_ROOT="$RUNNER_TEMP/workecho-postgres/node_modules/@electric-sql/pglite" npm run test:cloud
+      - name: Chromium workflows
+        run: |
+          npx playwright install --with-deps chromium
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$(node --input-type=module -e "import {chromium} from 'playwright';console.log(chromium.executablePath())")"
+          npm run test:browser
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Keyless container startup
+        run: docker compose up --build --wait
+      - name: Container workflow
+        run: node tests/docker.smoke.mjs
+      - name: Container logs
+        if: failure()
+        run: docker compose logs
+      - name: Stop containers
+        if: always()
+        run: docker compose down
+  hosted-demo:
+    needs: [application, docker]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: node tests/hosted.smoke.mjs
