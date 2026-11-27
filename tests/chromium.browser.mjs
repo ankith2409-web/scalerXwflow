@@ -1,0 +1,60 @@
+// Dependency-free Chromium/CDP fallback when the Playwright package is unavailable.
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,dirname,resolve} from 'node:path';
+import {once} from 'node:events';
+import {createApp} from '../server/index.mjs';
+const executable=process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+if(!executable)throw new Error('Set PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH to Chromium.');
+const profile=await mkdtemp(join(tmpdir(),'workecho-browser-'));
+const server=createApp({dbPath:':memory:',workspace:true,speechKey:''});server.listen(0,'127.0.0.1');await once(server,'listening');
+const origin='http://127.0.0.1:'+server.address().port;
+const chrome=spawn(executable,['--headless=new','--no-sandbox','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{windowsHide:true,stdio:['ignore','ignore','pipe']});
+let diagnostics='';chrome.stderr.on('data',value=>{diagnostics+=value.toString();});
+let socket;
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+try{
+  let port;
+  for(let i=0;i<100;i++){try{port=(await readFile(join(profile,'DevToolsActivePort'),'utf8')).split('\n')[0];break;}catch{await pause(100);}}
+  assert.ok(port,'Chromium debugging endpoint started: '+diagnostics.slice(-1000));
+  const pages=await(await fetch('http://127.0.0.1:'+port+'/json/list')).json();
+  socket=new WebSocket(pages.find(p=>p.type==='page').webSocketDebuggerUrl);await once(socket,'open');
+  let id=0;const pending=new Map(),errors=[];
+  socket.addEventListener('message',({data})=>{const value=JSON.parse(data);if(value.method==='Runtime.exceptionThrown')errors.push(value.params.exceptionDetails.text);const p=pending.get(value.id);if(p){pending.delete(value.id);value.error?p.reject(new Error(value.error.message)):p.resolve(value.result);}});
+  const send=(method,params={})=>new Promise((resolve,reject)=>{const next=++id;pending.set(next,{resolve,reject});socket.send(JSON.stringify({id:next,method,params}));});
+  const evaluate=async(expression)=>{const result=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw new Error(result.exceptionDetails.text);return result.result.value;};
+  const wait=async(expression)=>{for(let i=0;i<100;i++){if(await evaluate('Boolean('+expression+')'))return;await pause(100);}throw new Error('Timed out: '+expression);};
+  const click=async(text)=>{await wait(`Array.from(document.querySelectorAll('button,a,label')).some(e=>e.textContent.trim()===${JSON.stringify(text)})`);return evaluate(`Array.from(document.querySelectorAll('button,a,label')).find(e=>e.textContent.trim()===${JSON.stringify(text)}).click()`);};
+  const fill=async(selector,text)=>{await evaluate(`document.querySelector(${JSON.stringify(selector)}).focus()`);await send('Input.insertText',{text});};
+  await send('Runtime.enable');await send('Page.enable');
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+  await send('Page.navigate',{url:origin});await wait(`document.querySelector('#work-account')`);
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await pause(400);
+  const desktopShot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});await writeFile(resolve('.qa-desktop.png'),Buffer.from(desktopShot.data,'base64'));
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+  await evaluate(`document.querySelector('.v2-consents input[type="checkbox"]').click()`);
+  const story='Place: Jodhpur\nWork: Cut stone slabs\nTime: Before lockdown, for two monsoons\nLandmark: Railway crossing\nName: Raju shed';
+  await fill('#work-account',story);await click('Review account');
+  await wait(`document.querySelector('.v2-review input')?.value==='Jodhpur'`);
+  assert.equal(await evaluate(`document.querySelectorAll('.v2-review input')[2].value`),'Before lockdown, for two monsoons');
+  assert.equal(await evaluate('document.documentElement.scrollWidth'),390);
+  const screenshot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+  const screenshotPath=resolve('.qa-mobile.png');await writeFile(screenshotPath,Buffer.from(screenshot.data,'base64'));
+  await click('Confirm and save');
+  await wait(`document.querySelector('.v2-recovery code')?.textContent.length===43`);
+  const code=await evaluate(`document.querySelector('.v2-recovery code').textContent`);
+  await click('Sign out');await click('Reopen history');await fill('#restore-code',code);
+  await click('Reopen my history');await wait(`document.querySelector('.v2-records h2')?.textContent==='Jodhpur'`);
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await send('Page.navigate',{url:origin+'/staff/review'});await wait(`document.querySelector('#passphrase')`);await fill('#passphrase','browser testing passphrase');await click('Create workspace');
+  await wait(`document.querySelector('.staff-summary')`);assert.equal(await evaluate('document.documentElement.scrollWidth'),1440);
+  assert.deepEqual(errors,[]);
+  console.log('Chromium passed: mobile transcript extraction and review, save, recovery after sign-out, staff sign-in, responsive layout, and no browser exceptions.');
+  console.log('Screenshot:',screenshotPath);
+}finally{
+  socket?.close();chrome.kill();await new Promise(resolve=>server.close(resolve));await pause(500);
+  if(dirname(resolve(profile)).toLowerCase()===resolve(tmpdir()).toLowerCase()&&profile.includes('workecho-browser-'))await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100}).catch(()=>{});
+}

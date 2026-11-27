@@ -1,25 +1,41 @@
-# WorkEcho
+# WorkEcho — Scaler × Wispr Flow
 
-WorkEcho is a voice-first work history web application for stone cutters and polishers. This first milestone implements the worker's intake and confirmation workflow using fictional data. It includes Hindi and English prompts, editable recordings or typed answers, a spoken read-back where the browser has a suitable voice, and saved histories scoped to a short session.
+A working prototype for worker-confirmed work histories, shared workplace comparisons and referral follow-up.
 
-## Run locally
+## One-command startup
 
-Install Node.js 24.12 or newer, then run:
+Run `docker compose up --build`, then open http://localhost:3000. Docker Desktop must run Linux containers. No environment file, API key or cloud account is required for the main screen, manual details, confirmation, saved history, recovery or local staff access. A Docker volume preserves records. Stop with `docker compose down`; adding `-v` deletes that volume.
 
-```sh
-npm install
-npm run build
-npm start
-```
+## Genuine Wispr Flow
 
-Open http://127.0.0.1:3000. Choose a language, agree to save a demo history, and start. Use the fictional answer option or type a response. After the five questions, change the location on the review screen, confirm, and reopen the history. A refresh preserves saved entries while the session is active. Sign out clears the session and its entries. SQLite is stored under `.data/`.
+Install Wispr Flow, focus an account field and use the configured Flow shortcut or mobile keyboard. WorkEcho receives text inserted by Wispr. Its focus button does not start a microphone recording. Spoken languages depend on Wispr; the interface currently uses English. The rebuilt capture screen does not substitute browser speech recognition or Sarvam.
 
-## Optional microphone input
+From Notetaker on the hosted app connects your account through OAuth with PKCE and reads selected meeting transcripts through the official Wispr MCP server. MCP cannot start recordings. Notetaker access and real-account authorization are required. Missing connection credentials show a setup state without blocking startup.
 
-Copy `.env.example` to `.env` and set `SARVAM_API_KEY` on the server. Restart the app. The recording consent option then becomes available. If selected, Clips of up to 25 seconds are sent to Sarvam for transcription. WorkEcho does not persist the audio. Hindi and English read-back use browser speech synthesis and depend on installed on-device voices. The fictional example is clearly labelled and works without a credential.
+## Workflow
 
-Use fictional information while testing this milestone. On another device, browser microphone access needs HTTPS. If running behind an HTTPS reverse proxy in a controlled demo environment, set `HOST`, `APP_ORIGIN` to the exact HTTPS origin and `SECURE_COOKIES=1`. This SQLite build is intended for a single Node server and a writable disk.
+1. Dictate an account or add the five details directly with Flow.
+2. Choose saving, comparison sharing and follow-up independently.
+3. Review place, work, approximate time, landmark and name. Unknown details stay blank.
+4. Confirm and save. Keep the private recovery code.
+5. Reopen, correct, export or withdraw sharing. Withdrawal cancels pending referrals.
 
-## Tests and scope
+Without an optional analysis key, labelled text is extracted and the other fields are completed manually. Direct entry into the five fields needs no analysis key. The app never silently confirms an account or infers a medical diagnosis.
 
-`npm test` checks consent, duplicate saves, corrections, cross-session isolation, sign-out, request origin checks, and the voice adapter path with a stub provider. The planned Supabase migration, staff review, workplace matching and simulated referrals are later milestones. This build uses React/Vite and Node's built-in SQLite to run without cloud credentials.
+## Staff and backend
+
+Local Docker mode stores SQLite records on a volume and lets the first staff user create a passphrase. The hosted backend uses Neon PostgreSQL with individual accounts, expiring sessions, reviewer/health/admin roles, audit events, atomic writes and version checks. Only worker-shared histories are visible to staff. Referrals require outreach permission and an approval step. Invitations and appointments are performed outside WorkEcho and logged here.
+
+The first cloud administrator needs a one-time setup code kept outside this repository. Database credentials and OAuth access tokens never appear in browser code. Schema: database/workecho.sql.
+
+## Development
+
+Use Node.js 24.12 or newer. Run `npm ci`, `npm run build`, then `npm start`. Local Node startup prints http://127.0.0.1:3002 or the next available port.
+
+`npm test` checks ownership, consent, conflicts, idempotency, referrals, evidence and OAuth using a provider double. `node tests/chromium.browser.mjs` checks the rebuilt interface when PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH points to Chromium. `npm run test:cloud` checks production SQL with PGlite when PGLITE_ROOT points to @electric-sql/pglite 0.3.16.
+
+Verified: frontend build, 10 automated tests, PostgreSQL installation, and Chromium mobile/desktop capture, review, save, recovery and staff sign-in. Compose configuration validates. A full Docker image build requires a working engine and registry access. Real Wispr sign-in, multilingual dictation quality and target-worker usability need separate testing.
+
+## Submission
+
+Keep this repository public and share the branch containing docker-compose.yml. The supplied requirements screenshot shows only the code section; check the remaining two submission items before the single final submission. It specifies 30 November, 11:59 pm without showing a timezone.

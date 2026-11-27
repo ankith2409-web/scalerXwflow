@@ -1,5 +1,9 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { staffDemo } from './staff-demo.mjs';
+import { workspaceAuth } from './workspace-auth.mjs';
+import { RequestError } from './errors.mjs';
+export { RequestError } from './errors.mjs';
 
 export const SESSION_SECONDS = 30 * 60;
 const NOTICE_VERSION = 'demo-v1';
@@ -7,14 +11,12 @@ export const fields = ['place', 'task', 'period', 'landmark', 'alias'];
 export const isUuid = (id) => typeof id === 'string' && /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(id);
 export const hash = (s) => createHash('sha256').update(s).digest('hex');
 
-export class RequestError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
+const demoTables = [
+  'sessions', 'intakes', 'demo_preferences', 'histories', 'history_revisions', 'voice_usage',
+  'demo_staff', 'demo_decisions', 'demo_referrals', 'demo_events',
+];
 
-export function openStore(filename) {
+export function openStore(filename, demoSnapshot) {
   const db = new DatabaseSync(filename);
   db.exec(`
     PRAGMA foreign_keys = ON;
@@ -35,35 +37,90 @@ export function openStore(filename) {
     CREATE TABLE IF NOT EXISTS voice_usage (
       intake_id TEXT NOT NULL REFERENCES intakes(id) ON DELETE CASCADE, requested INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS analysis_usage (session_id TEXT NOT NULL, requested INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS intakes_owner ON intakes(session_id);
     CREATE INDEX IF NOT EXISTS voice_usage_time ON voice_usage(requested);
+    CREATE TABLE IF NOT EXISTS demo_preferences (
+      intake_id TEXT PRIMARY KEY REFERENCES intakes(id) ON DELETE CASCADE,
+      matching INTEGER NOT NULL, outreach INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS history_revisions (
+      history_id TEXT NOT NULL REFERENCES histories(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL, payload TEXT NOT NULL, operation TEXT NOT NULL,
+      evidence TEXT NOT NULL, changed_at TEXT NOT NULL,
+      PRIMARY KEY(history_id, version), UNIQUE(history_id, operation)
+    );
   `);
   const now = () => Math.floor(Date.now() / 1000);
   const timestamp = () => new Date().toISOString();
-  const toHistory = (row) => ({ id: row.id, fields: JSON.parse(row.payload), confirmedAt: row.confirmed_at });
+  const toHistory = (row) => {
+    const revision = db.prepare('SELECT * FROM history_revisions WHERE history_id = ? ORDER BY version DESC LIMIT 1').get(row.id);
+    return {
+      id: row.id, fields: JSON.parse(revision?.payload ?? row.payload), confirmedAt: row.confirmed_at,
+      version: revision?.version ?? 1, evidence: JSON.parse(revision?.evidence ?? row.payload),
+    };
+  };
 
-  return {
+  function readEntry(values) {
+    if (!values || typeof values !== 'object' || Array.isArray(values)) throw new RequestError(400, 'Check the work details.');
+    const result = {};
+    for (const field of fields) {
+      const value = values[field];
+      if (value !== null && (typeof value !== 'string' || !value.trim() || value.length > 500)) {
+        throw new RequestError(400, 'An answer is blank or too long.');
+      }
+      result[field] = typeof value === 'string' ? value.trim() : null;
+    }
+    return result;
+  }
+
+  function issueSession(lifetime) {
+    const token = randomBytes(32).toString('base64url');
+    const id = randomUUID();
+    db.prepare('INSERT INTO sessions(id, token_hash, expires) VALUES (?, ?, ?)').run(id, hash(token), now() + lifetime);
+    return { token, id };
+  }
+
+  const workspace = workspaceAuth(db, { RequestError, hash, issueSession });
+
+  const store = {
     close: () => db.close(),
+    reserveAnalysis(session) {
+      db.prepare('DELETE FROM analysis_usage WHERE requested < ?').run(now() - 1800);
+      if (db.prepare('SELECT count(*) AS n FROM analysis_usage WHERE session_id = ?').get(session.id).n >= 12) {
+        throw new RequestError(429, 'Analysis limit reached. Enter the details manually.');
+      }
+      db.prepare('INSERT INTO analysis_usage VALUES (?, ?)').run(session.id, now());
+    },
     getSession(token) {
       if (!/^[A-Za-z\d_-]{43}$/.test(token ?? '')) return null;
       return db.prepare('SELECT id FROM sessions WHERE token_hash = ? AND closed = 0 AND expires > ?')
         .get(hash(token), now()) ?? null;
     },
     createSession() {
-      db.prepare('DELETE FROM sessions WHERE expires <= ?').run(now());
-      const token = randomBytes(32).toString('base64url');
-      const id = randomUUID();
-      db.prepare('INSERT INTO sessions(id, token_hash, expires) VALUES (?, ?, ?)')
-        .run(id, hash(token), now() + SESSION_SECONDS);
-      return { token, id };
+      db.prepare(`DELETE FROM sessions WHERE expires <= ?
+        AND id NOT IN (SELECT session_id FROM local_profiles) AND id NOT IN (SELECT session_id FROM local_staff)`).run(now());
+      return issueSession(SESSION_SECONDS);
     },
     signOut(session) {
+      if (workspace.isProfile(session.id)) {
+        db.prepare('UPDATE sessions SET closed = 1 WHERE id = ?').run(session.id);
+        return;
+      }
       db.prepare('DELETE FROM sessions WHERE id = ?').run(session.id);
     },
-    startIntake(session, { language, voice }) {
+    startIntake(session, { language, voice, matching, outreach }) {
       const id = randomUUID();
-      db.prepare('INSERT INTO intakes VALUES (?, ?, ?, ?, ?, ?)')
-        .run(id, session.id, language, Number(voice), NOTICE_VERSION, timestamp());
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare('INSERT INTO intakes VALUES (?, ?, ?, ?, ?, ?)')
+          .run(id, session.id, language, Number(voice), workspace.isProfile(session.id) ? 'local-v1' : NOTICE_VERSION, timestamp());
+        db.prepare('INSERT INTO demo_preferences VALUES (?, ?, ?)').run(id, Number(matching === true), Number(outreach === true));
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
       return { id };
     },
     intake(session, id) {
@@ -93,17 +150,11 @@ export function openStore(filename) {
       if (!isUuid(body.operation) || body.confirmed !== true || !body.fields || typeof body.fields !== 'object') {
         throw new RequestError(400, 'Check the entry and confirm before saving.');
       }
-      const entry = {};
-      for (const field of fields) {
-        const value = body.fields[field];
-        if (value !== null && (typeof value !== 'string' || !value.trim() || value.length > 500)) {
-          throw new RequestError(400, 'An answer is blank or too long.');
-        }
-        entry[field] = typeof value === 'string' ? value.trim() : null;
-      }
+      const entry = readEntry(body.fields);
+      const evidence = body.evidence === undefined ? entry : readEntry(body.evidence);
       if (!Object.values(entry).some(Boolean)) throw new RequestError(400, 'Include at least one remembered detail.');
       const payload = JSON.stringify(entry);
-      const fingerprint = hash(payload);
+      const fingerprint = hash(body.evidence === undefined ? payload : JSON.stringify({ entry, evidence }));
       db.exec('BEGIN IMMEDIATE');
       try {
         this.intake(session, intakeId);
@@ -112,20 +163,96 @@ export function openStore(filename) {
           throw new RequestError(409, 'This interview has already been saved. Open your history to check it.');
         }
         const row = previous ?? { id: randomUUID(), payload, confirmed_at: timestamp() };
-        if (!previous) db.prepare('INSERT INTO histories VALUES (?, ?, ?, ?, ?, ?)')
-          .run(row.id, intakeId, payload, fingerprint, body.operation, row.confirmed_at);
+        if (!previous) {
+          db.prepare('INSERT INTO histories VALUES (?, ?, ?, ?, ?, ?)')
+            .run(row.id, intakeId, payload, fingerprint, body.operation, row.confirmed_at);
+          db.prepare('INSERT INTO history_revisions VALUES (?, 1, ?, ?, ?, ?)')
+            .run(row.id, payload, body.operation, JSON.stringify(evidence), row.confirmed_at);
+        }
+        const result = previous ? { id: row.id, fields: entry, evidence, confirmedAt: row.confirmed_at, version: 1 } : toHistory(row);
         db.exec('COMMIT');
-        return toHistory(row);
+        return result;
       } catch (error) {
         db.exec('ROLLBACK');
         throw error;
       }
     },
     history(session) {
-      return db.prepare(`
+      const rows = db.prepare(`
         SELECT histories.* FROM histories JOIN intakes ON intakes.id = histories.intake_id
         WHERE intakes.session_id = ? ORDER BY histories.confirmed_at DESC, histories.rowid DESC
-      `).all(session.id).map(toHistory);
+      `).all(session.id);
+      if (!workspace.isProfile(session.id)) return rows.map(toHistory);
+      return rows.map((row) => {
+        const permissions = db.prepare('SELECT matching, outreach FROM demo_preferences WHERE intake_id = ?').get(row.intake_id);
+        return { ...toHistory(row), sharing: Boolean(permissions?.matching || permissions?.outreach) };
+      });
+    },
+    stopSharing(session, historyId) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const row = db.prepare(`SELECT histories.* FROM histories JOIN intakes ON intakes.id = histories.intake_id
+          WHERE histories.id = ? AND intakes.session_id = ?`).get(historyId, session.id);
+        if (!row) throw new RequestError(404, 'History not found.');
+        db.prepare('UPDATE demo_preferences SET matching = 0, outreach = 0 WHERE intake_id = ?').run(row.intake_id);
+        const staff = workspace.staffScope();
+        if (staff) demo.invalidate(staff, historyId, toHistory(row).version, 'Worker withdrew sharing permission.');
+        db.exec('COMMIT');
+        return { sharing: false };
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
+    revise(session, historyId, body) {
+      if (!isUuid(body.operation) || body.confirmed !== true || !Number.isSafeInteger(body.version)) {
+        throw new RequestError(400, 'Confirm the corrected history before saving.');
+      }
+      const entry = readEntry(body.fields);
+      if (!Object.values(entry).some(Boolean)) throw new RequestError(400, 'Include at least one remembered detail.');
+      const payload = JSON.stringify(entry);
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const row = db.prepare(`SELECT histories.* FROM histories JOIN intakes ON intakes.id = histories.intake_id
+          WHERE histories.id = ? AND intakes.session_id = ?`).get(historyId, session.id);
+        if (!row) throw new RequestError(404, 'History not found.');
+        const current = toHistory(row);
+        const retry = db.prepare('SELECT * FROM history_revisions WHERE history_id = ? AND operation = ?').get(historyId, body.operation);
+        if (retry) {
+          if (retry.version !== body.version + 1 || retry.payload !== payload) throw new RequestError(409, 'This action has already been used.');
+          db.exec('COMMIT');
+          return { ...current, version: retry.version, fields: JSON.parse(retry.payload) };
+        }
+        if (current.version !== body.version) throw new RequestError(409, 'This history has changed. Open it again.');
+        db.prepare('INSERT INTO history_revisions VALUES (?, ?, ?, ?, ?, ?)')
+          .run(historyId, current.version + 1, payload, body.operation, JSON.stringify(current.evidence), timestamp());
+        demo.invalidate(session, historyId, current.version);
+        const scope = workspace.staffScope();
+        if (scope && workspace.isProfile(session.id)) demo.invalidate(scope, historyId, current.version);
+        db.exec('COMMIT');
+        return { ...current, fields: entry, version: current.version + 1 };
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
     },
   };
+  const demo = staffDemo(db, { toHistory, timestamp, RequestError, hash, isUuid });
+  if (demoSnapshot) {
+    try {
+      db.exec('BEGIN');
+      for (const table of demoTables) {
+        const columns = Object.keys(demoSnapshot[table]?.[0] ?? {});
+        if (columns.length === 0) continue;
+        const insert = db.prepare(`INSERT INTO ${table} VALUES (${columns.map(() => '?').join(',')})`);
+        for (const row of demoSnapshot[table]) insert.run(...Object.values(row));
+      }
+      db.exec('COMMIT');
+    } catch (error) {
+      db.close();
+      throw error;
+    }
+  }
+  store.demoSnapshot = () => Object.fromEntries(demoTables.map((table) => [table, db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+  return { ...store, demo, workspace };
 }
