@@ -22,6 +22,18 @@ function unseal(value,key) {
     return JSON.parse(Buffer.concat([cipher.update(bytes.subarray(28)),cipher.final()]).toString('utf8'));
   } catch { return null; }
 }
+export async function discoverWispr(fetcher=fetch){
+  async function read(url){
+    const response=await fetcher(trusted(url),{redirect:'error',signal:AbortSignal.timeout(12000)});
+    if(!response.ok)throw new RequestError(503,'Wispr authorization metadata is unavailable.');
+    return response.json();
+  }
+  const metadata=await read('https://api.wisprflow.ai/.well-known/oauth-protected-resource/connect/mcp');
+  if(metadata.resource&&metadata.resource!==server)throw new RequestError(503,'Wispr returned an unexpected resource.');
+  const issuer=new URL(trusted(metadata.authorization_servers?.[0]));
+  const configuration=await read(issuer.origin+'/.well-known/oauth-authorization-server'+issuer.pathname.replace(/\/$/,''));
+  return {authorization:trusted(configuration.authorization_endpoint),token:trusted(configuration.token_endpoint),registration:trusted(configuration.registration_endpoint)};
+}
 export function createWisprHandler({ secret, origin, fetcher=fetch }={}) {
   const key=/^[\w-]{43}$/.test(secret??'')?Buffer.from(secret,'base64url'):null;
   async function fetchJson(url,init={}) {
@@ -30,10 +42,7 @@ export function createWisprHandler({ secret, origin, fetcher=fetch }={}) {
     const data=await response.json();return data;
   }
   async function discovery() {
-    const metadata=await fetchJson('https://api.wisprflow.ai/.well-known/oauth-protected-resource/connect/mcp');
-    const issuer=new URL(trusted(metadata.authorization_servers?.[0]));
-    const configuration=await fetchJson(issuer.origin+'/.well-known/oauth-authorization-server'+issuer.pathname.replace(/\/$/,''));
-    return {authorization:trusted(configuration.authorization_endpoint),token:trusted(configuration.token_endpoint),registration:trusted(configuration.registration_endpoint)};
+    return discoverWispr(fetcher);
   }
   async function mcp(access,name,args) {
     let session;
