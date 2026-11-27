@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { createCloudHandler } from '../server/cloud.mjs';
+import {featureContract} from './features-contract.mjs';
 const root=process.env.PGLITE_ROOT;
 if(!root) throw new Error('Set PGLITE_ROOT to the @electric-sql/pglite installation directory.');
 const {PGlite}=await import(pathToFileURL(root+'/dist/index.js').href);
@@ -23,7 +24,7 @@ try {
   const client=()=>{ const jar=new Map(); return async(path,method='GET',data)=>{
     const response=await handler(new Request('https://workecho.test'+path,{method,headers:{origin:'https://workecho.test','content-type':'application/json',cookie:[...jar].map(([k,v])=>k+'='+v).join('; ')},body:data?JSON.stringify(data):undefined}));
     for(const cookie of response.headers.getSetCookie()){const [pair]=cookie.split(';');const i=pair.indexOf('=');jar.set(pair.slice(0,i),pair.slice(i+1));}
-    return {status:response.status,data:await response.json()};
+    return response.headers.get('content-type')?.includes('application/json')?{status:response.status,data:await response.json()}:{status:response.status,bytes:Buffer.from(await response.arrayBuffer())};
   };};
   const a=client(), b=client(), staff=client(), stranger=client();
   const fields={place:'Jodhpur',task:'Cut stone slabs',period:'Before lockdown, for two monsoons',landmark:'Railway crossing',alias:'Raju shed'};
@@ -124,6 +125,14 @@ try {
   assert.deepEqual((await extra('/api/history')).data,[]);
   for(const table of ['we_sources','we_revisions','we_referrals'])assert.equal((await db.query(`select count(*)::int as n from public.${table} where history_id=$1`,[extraRecord.id])).rows[0].n,0);
   console.log('Maintenance checks passed: >200 record search, pagination, literal search, password changes, session revocation, versioned private deletion and linked-data cleanup.');
+  await db.exec(await readFile(new URL('../database/migrations/004-workspace-features.sql',import.meta.url),'utf8'));
+  await featureContract({worker:client(),staff,stranger:client()});
+  const sandboxHash=hash('isolated synthetic sandbox');
+  const sandbox=async(action,payload='',version=0)=>(await db.query('select public.we_sandbox_api($1,$2,$3,$4) as value',[action,sandboxHash,payload,version])).rows[0].value;
+  assert.equal(await sandbox('read'),null);assert.equal((await sandbox('write','encrypted synthetic fixture')).version,1);
+  assert.equal((await sandbox('read')).payload,'encrypted synthetic fixture');
+  await assert.rejects(()=>sandbox('write','conflicting fixture'),/409/);
+  for(const role of ['anon','authenticated']){await db.exec('set role '+role);await assert.rejects(()=>db.query('select public.we_feature_api($1,$2)', ['','{}']),/permission denied/);await assert.rejects(()=>db.query('select * from public.we_feature_items'),/permission denied/);await assert.rejects(()=>db.query('select * from public.we_sandboxes'),/permission denied/);await db.exec('reset role');}
   console.log('PostgreSQL checks passed: separate clients, privacy, bootstrap login, matching, referral approval, withdrawal, recovery, revision conflicts, and denied anonymous database access.');
 } catch(error) { console.error('PostgreSQL verification failed:',error.message,error.detail??'',error.where??'',error.position??'',error.internalQuery??''); if(error.query && error.position)console.error(error.query.slice(Math.max(0,Number(error.position)-120),Number(error.position)+120)); process.exitCode=1; }
 finally {await db.close();}

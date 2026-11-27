@@ -5,6 +5,7 @@ import { captureFormat, transcribe } from './speech.mjs';
 import { RequestError } from './errors.mjs';
 import { readSource, readPermissions, readDraft, validateEvidence, interfaceLanguages } from './account.mjs';
 import { semanticScores } from './matching.mjs';
+import { featureRequest, featureDownload } from './features.mjs';
 
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const token = () => randomBytes(32).toString('base64url');
@@ -37,10 +38,10 @@ async function readBody(request, limit = 65536) {
   for (const chunk of chunks) { bytes.set(chunk,offset); offset += chunk.byteLength; }
   return bytes;
 }
-async function json(request) {
+async function json(request, limit = 65536) {
   if (request.headers.get('content-type')?.split(';')[0] !== 'application/json') throw new RequestError(415,'Send JSON.');
   let value;
-  try { value = JSON.parse(new TextDecoder().decode(await readBody(request))); }
+  try { value = JSON.parse(new TextDecoder().decode(await readBody(request,limit))); }
   catch (error) { if (error.status) throw error; throw new RequestError(400,'Invalid JSON.'); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new RequestError(400,'Invalid JSON.');
   return value;
@@ -79,6 +80,14 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
       const staff = cookies.get(cookieName.staff) ?? '';
       const capabilities = { cloud:true,workspace:true,voiceAvailable:Boolean(speechKey),analysisAvailable:Boolean(aiKey),embeddingsAvailable:Boolean(aiKey) };
       const rateKey = hash(request.headers.get('x-workecho-client') || 'global');
+      if(path.startsWith('/api/features/')) {
+        const route=featureRequest(requestUrl,method,method==='GET'?{}:await json(request,360_000));
+        const result=await rpc('features',route.staff?staff:worker,{...route.input,action:route.action,staff:route.staff});
+        if(route.action==='download') {
+          const file=featureDownload(result);headers.set('Content-Type',file.mime);headers.set('Content-Disposition',"attachment; filename*=UTF-8''"+encodeURIComponent(file.filename));return new Response(file.bytes,{headers});
+        }
+        return respond(result);
+      }
       if (path==='/api/session' && method==='GET') return respond({...await rpc('session',worker),...capabilities});
       if (path==='/api/session' && method==='DELETE') { await rpc('signout',worker); setCookie('worker','',0); return respond({active:false}); }
       if (path==='/api/session/restore' && method==='POST') {
@@ -86,7 +95,7 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
         if (typeof code!=='string' || !/^[\w-]{43}$/.test(code.trim())) throw new RequestError(401,'Check your recovery code.');
         const value=token();
         await rpc('restore','',{recoveryHash:hash(code.trim()),tokenHash:hash(value),rateKey});
-        setCookie('worker',value); return respond({active:true,...capabilities});
+        setCookie('worker',value); return respond({...await rpc('session',value),...capabilities});
       }
       if (path==='/api/session/recovery-code' && method==='POST') {
         const code=token(); await rpc('recovery',worker,{recoveryHash:hash(code)}); return respond({code});
@@ -100,7 +109,7 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
           await rpc('new_worker','',{tokenHash:hash(credential),recoveryHash:hash(code),rateKey});
           setCookie('worker',credential);
         }
-        return respond({...await rpc('intake',credential,{...data,matching:data.matching===true,outreach:data.outreach===true}),...(code?{code}:{})},201);
+        return respond({...await rpc('intake',credential,{...data,matching:data.matching===true,outreach:data.outreach===true}),workerId:(await rpc('session',credential)).workerId,...(code?{code}:{})},201);
       }
       if (path==='/api/staff/session') {
         if (method==='GET') return respond({...await rpc('staff_session',staff),...capabilities});

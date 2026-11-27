@@ -142,7 +142,8 @@ export function staffDemo(db, { toHistory, timestamp, RequestError, hash, isUuid
     candidates,
     records(session) {
       const referrals = new Set(db.prepare('SELECT candidate FROM demo_referrals WHERE session_id = ?').all(session.id).map((row) => row.candidate));
-      return workspaceSources().map((item) => ({ ...item.person, id: referralKey(item), outreach: item.outreach, matching: item.matching,
+      const sources=session.workspace?workspaceSources():db.prepare(`SELECT h.*,i.session_id AS owner,p.matching,p.outreach FROM histories h JOIN intakes i ON i.id=h.intake_id JOIN demo_preferences p ON p.intake_id=i.id WHERE i.session_id=? AND (p.matching=1 OR p.outreach=1) ORDER BY h.id`).all(session.id).map(row=>fromRow(row,'Fictional worker'));
+      return sources.map((item) => ({ ...item.person, id: referralKey(item), outreach: item.outreach, matching: item.matching,
         referral: referrals.has(referralKey(item)) }));
     },
     decide(session, id, data) {

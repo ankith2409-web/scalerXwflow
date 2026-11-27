@@ -24,7 +24,7 @@ Checked on 27 November 2026: this project's history retention is 21,600 seconds 
 4. Run application tests against synthetic data on the isolated branch. Check ownership, record sources, consent, recovery and staff permissions.
 5. Review the data difference and migration compatibility before approving a production cutover. Document the outcome and time required.
 
-No backup restoration has been rehearsed yet. The checked-in migrations install RPC definitions; they do not execute worker-record deletion. Apply migration 003 to an isolated branch first, verify it, then apply the same definition change to production.
+No backup restoration has been rehearsed yet. The checked-in migrations install RPC definitions; they do not execute worker-record deletion. Apply migrations 003 and 004 to an isolated branch first, verify it, then apply the same definition change to production.
 
 ## Wispr connection verification
 
@@ -37,6 +37,14 @@ The MCP client handles JSON and streamed SSE responses, matches the requested RP
 GitHub Actions runs backend tests, PostgreSQL integration, Chromium flows, keyless Docker startup and an HTTPS smoke test of the isolated hosted demo. Demo writes stay outside Neon worker data. The browser checks include connection loss and retry, reduced motion, a cancellable deletion dialog, record removal, staff search and password changes.
 
 Monitor Vercel's existing runtime logs and Neon availability during a pilot. Dedicated alert routing, scheduled restore drills, a full retention policy and large-volume load testing remain to be configured. AI remains disabled; do not enable it or add paid notification services without the owner's decision.
+
+## Device drafts, attachments and demo isolation
+
+Device drafts require separate consent and a passphrase. Only encrypted payloads, random salt/IV and expiry metadata are stored in IndexedDB; the key and passphrase are not persisted. Seven-day expiry is checked on access. Saving a job, discarding a draft or closing a worker clears the device copy. The app shell service worker caches public code only and never intercepts API requests or remote map tiles. It must finish installation before device storage can be enabled. Browser storage may be blocked. Managed Windows test profiles can use an explicit writable WORKECHO_BROWSER_PROFILE_ROOT; the complete workflow then runs without skips. Linux CI uses its normal temporary directory.
+
+Attachment limits are three files per job, 256 KB each, with a 64 MB application storage cap. JPEG/PNG/PDF signatures and metadata are validated. No automatic malware scanning is provided. Downloads require authentication; staff also need current history sharing and per-file sharing. Private locations are removed from staff responses. Cases require follow-up permission; workplace links require matching permission. Corrections mark earlier link/case versions for review. Worker-record deletion cascades to attached files and feature metadata.
+
+With Neon configured, the fictional demo uses encrypted, versioned snapshots in we_sandboxes, keyed by a random HttpOnly token. It does not create real workers/staff or read their histories. Expired snapshots are purged on subsequent demo activity. The server-side encryption key must remain private and stable; rotating it invalidates saved demo sessions. Global sandbox storage is bounded at 64 MB. Cookie-only fallback has much lower capacity.
 
 ## Matching and search limits
 

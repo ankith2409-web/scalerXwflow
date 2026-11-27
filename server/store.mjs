@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { staffDemo } from './staff-demo.mjs';
+import { featureStore } from './features-store.mjs';
 import { workspaceAuth } from './workspace-auth.mjs';
 import { RequestError } from './errors.mjs';
 import { readSource, readPermissions, readDraft, validateEvidence } from './account.mjs';
@@ -15,7 +16,7 @@ export const hash = (s) => createHash('sha256').update(s).digest('hex');
 const demoTables = [
   'sessions', 'intakes', 'demo_preferences', 'histories', 'history_revisions', 'voice_usage',
   'demo_staff', 'demo_decisions', 'demo_referrals', 'demo_events',
-  'account_sources', 'intake_drafts',
+  'account_sources', 'intake_drafts', 'feature_items',
 ];
 
 export function openStore(filename, demoSnapshot) {
@@ -303,6 +304,13 @@ export function openStore(filename, demoSnapshot) {
     },
   };
   const demo = staffDemo(db, { toHistory, timestamp, RequestError, hash, isUuid });
+  store.features = featureStore(db, (actor, id) => {
+    const row = db.prepare('SELECT h.*,i.session_id FROM histories h JOIN intakes i ON i.id=h.intake_id WHERE h.id=?').get(id);
+    if (!row || (!actor.staff && row.session_id !== actor.workerId) || (actor.staff && !actor.workspace && row.session_id !== actor.workerId)) return null;
+    if(actor.staff && actor.workspace && !workspace.isProfile(row.session_id)) return null;
+    const value=toHistory(row);
+    return actor.staff && !value.sharing ? null : value;
+  });
   if (demoSnapshot) {
     try {
       db.exec('BEGIN');

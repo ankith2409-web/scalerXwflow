@@ -1,0 +1,11 @@
+import { readFile,writeFile } from 'node:fs/promises';
+const url=new URL('../database/workecho.sql',import.meta.url);
+let schema=await readFile(url,'utf8');
+const marker='-- BEGIN FEATURE EXTENSION';
+schema=schema.split(marker)[0].trimEnd()+'\n\n';
+const features=await readFile(new URL('../database/features.sql',import.meta.url),'utf8');
+await writeFile(url,schema+marker+'\n'+features);
+const start=schema.indexOf('create function public.we_api('),end=schema.indexOf('\n$$;',start)+4;
+const api=schema.slice(start,end).replace('create function','create or replace function');
+await writeFile(new URL('../database/migrations/004-workspace-features.sql',import.meta.url),'-- Additive feature tables and function definitions; no existing records are changed.\n'+features+'\n'+api+'\n');
+console.log('Generated additive workspace feature migration.');

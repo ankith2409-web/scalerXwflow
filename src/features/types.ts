@@ -1,0 +1,10 @@
+import type {History} from '../workspace/types';
+export type MapLocation={lat:number;lon:number;radiusMeters:number;label:string;shared:boolean};
+export type PeriodDetails={startYear:number|null;endYear:number|null;certainty:'unknown'|'approximate'|'year';ongoing:boolean;location:MapLocation|null;historyVersion?:number};
+export type Workplace={name:string;locality:string;aliases:string[];status:'unreviewed'|'reviewed'|'archived';reason:string;location:MapLocation|null};
+export type CaseData={assigneeId:string;nextAction:string;dueDate:string;status:'open'|'paused'|'closed';historyVersion:number};
+export type Attachment={filename:string;mime:string;size:number;sha256:string;caption:string;shared:boolean;review:string;reviewReason:string;reviewedBy?:string;reviewedAt?:string};
+export type Feature<T>={id:string;kind:string;historyId:string|null;version:number;data:T;actor:string;updatedAt:string};
+export type Member={id:string;label:string};
+export type FeaturePack={record:History;details:Feature<PeriodDetails>|null;link:(Feature<{workplaceId:string|null;reason:string;historyVersion:number;workplaceVersion:number|null;workplaceSnapshot:{name:string;locality:string}|null}>&{workplace:Feature<Workplace>|null})|null;case:Feature<CaseData>|null;attachments:Feature<Attachment>[];members:Member[]};
+export const emptyDetails=():PeriodDetails=>({startYear:null,endYear:null,certainty:'unknown',ongoing:false,location:null});
