@@ -2,6 +2,14 @@
 
 Hosted AI is controlled by the runtime feature flags documented in architecture. The Gemini adapter has been checked with 25 real provider responses on typed fictional fixtures; see [the evaluation](extraction-evaluation.md). Flow dictation was confirmed working by the project owner on 28 November 2026. Authenticated Notetaker import is a separate, still-pending real-account check.
 
+## Hosted Gemini activation - 28 November 2026
+
+The owner explicitly enabled Gemini in the live app and fictional demo. Both runtime endpoints advertise Gemini extraction; OpenAI embeddings remain disabled. On deployment `dpl_CAz5TP216Dwvp4U54D6au8VhEe2a`, four fresh fictional samples returned actual Gemini responses: Hindi, Kannada, an English correction and an account containing negation plus another person's experience. The negation sample left all five fields blank; the correction retained the final Jodhpur answer rather than the retracted Jaipur answer. One Hindi display translation succeeded and preserved null fields. AI opt-out and a mismatched OpenAI consent receipt both returned rules. The isolated demo session was cleared; real worker records were not used.
+
+These are hosted smoke checks, not a new accuracy benchmark, recorded Wispr test or user study. Exact source excerpts do not establish correct speaker attribution or negation in every account. Request caps remain 200 total, 50 per UTC day, 10 per worker session/day and 25 per client address per fixed 30-minute window. [CI run 46137584791](https://github.com/ankith2409-web/scalerXwflow/actions/runs/46137584791) passed application, Docker and hosted workflows for the released implementation.
+
+A fifth, mixed Hindi/English fictional account was extracted by the hosted model and confirmed with its source and provider permission. Staff overview then included that exact new history in a Demo interview comparison with the original quote intact. The fictional record/session were deleted afterwards. This verifies the application data handoff; a real Flow recording of the journey is still needed.
+
 | Audit issue | Implemented fix | Evidence |
 | --- | --- | --- |
 | Final consent frozen at intake | Confirm atomically writes the final comparison and outreach choices | SQLite and PostgreSQL forward/reverse consent tests; browser back-edit regression |
@@ -49,7 +57,7 @@ These regressions are now in the committed browser suite. Gemini tests also veri
 
 - Flow dictation works according to the project owner's device report. The automated checks prove field focus/readiness; they do not independently measure that recording.
 - Authenticated Notetaker import, a real-device demonstration video and a three-person usability test still need the intended account and human participants.
-- The Gemini credential is stored as sensitive configuration and the deployed AI flag remains off pending operator activation. The model evaluation used typed fictional input separately from production worker data.
+- The Gemini credential is sensitive server configuration. Hosted extraction and translation are enabled with per-worker opt-in and durable caps; the evaluation and activation smoke checks used fictional input separately from production worker data.
 - Cross-browser/physical-device, screen-reader, sustained-load and backup-restoration validation remains outstanding.
 
 ## Practical limits
@@ -60,6 +68,6 @@ The migration audit installs 004 against a pre-feature schema seeded with fictio
 
 Managed Windows browser profiles may need an explicit writable profile root: set WORKECHO_BROWSER_PROFILE_ROOT to a local temporary directory. The complete workflow passed locally with this setting and no offline skips. Linux CI uses its normal temporary directory and runs the same complete workflow.
 
-The app is a working prototype. It does not guarantee every spoken language, perfect extraction, a verified shared workplace, medical diagnosis or automated outreach. Basic parsing is deliberately limited; unknown details require review. Worker UI supports three languages; staff UI uses English. Authenticated Wispr Notetaker import and target-worker usability still need real-account/human testing; Flow dictation is separately confirmed by the owner. AI extraction, translation and embedding ranking are optional, disabled, and never replace confirmation or access controls.
+The app is a working prototype. It does not guarantee every spoken language, perfect extraction, a verified shared workplace, medical diagnosis or automated outreach. Basic parsing is deliberately limited; unknown details require review. Worker UI supports three languages; staff UI uses English. Authenticated Wispr Notetaker import and target-worker usability still need real-account/human testing; Flow dictation is separately confirmed by the owner. Gemini extraction and translation require separate opt-in and never replace confirmation or access controls. OpenAI embedding ranking remains disabled.
 
 Hosted fictional demo snapshots are encrypted and stored in a private sandbox table, separate from real worker records, with a 30-minute expiry and bounded capacity. Small keyless hosted demos can use encrypted cookies. Staff search covers all shared histories with pagination; comparison review covers the latest 200 records. Optional model ranking considers up to 40 records with both AI and comparison permission. Earlier records can lack the full source because the old app did not store it. The matching suite uses curated synthetic cases, not a real-worker accuracy benchmark. Forgotten staff-password recovery, whole-account deletion, offline confirmation/outreach, backup-restore rehearsal and alert routing remain outstanding; see docs/operations.md.

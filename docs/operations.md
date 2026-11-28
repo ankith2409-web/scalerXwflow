@@ -36,7 +36,7 @@ The MCP client handles JSON and streamed SSE responses, matches the requested RP
 
 GitHub Actions runs backend tests, PostgreSQL integration, Chromium flows, keyless Docker startup and an HTTPS smoke test of the isolated hosted demo. Demo writes stay outside Neon worker data. The browser checks include connection loss and retry, reduced motion, a cancellable deletion dialog, record removal, staff search and password changes.
 
-Monitor Vercel's existing runtime logs and Neon availability during a pilot. Dedicated alert routing, scheduled restore drills, a full retention policy and large-volume load testing remain to be configured. AI remains disabled; do not enable it or add paid notification services without the owner's decision.
+Monitor Vercel's existing runtime logs and Neon availability during a pilot. Dedicated alert routing, scheduled restore drills, a full retention policy and large-volume load testing remain to be configured. The owner enabled Gemini extraction/translation in the hosted app and demo on 28 November 2026. Provider-specific worker consent and the shared durable request caps apply to both. The lifetime cap does not reset on redeployment; exceeding any cap returns basic/manual review. Disable processing with WORKECHO_AI_ENABLED=0 and redeploy if needed. Do not raise caps, add paid notification services or change provider-account billing without the owner's decision.
 
 ## Device drafts, attachments and demo isolation
 

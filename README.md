@@ -49,7 +49,7 @@ The interviewer operates WorkEcho alongside the worker. First-person labels repr
 
 ## Text extraction and review
 
-The server includes **Gemini Flash structured extraction and display translation**, with provider-specific consent, source-excerpt validation and an unknown-answer filter. The app displays the available extraction mode. [Hosted configuration and enforced quotas](docs/architecture.md#gemini-configuration-and-quotas) are documented separately.
+The hosted app and fictional demos offer **Gemini Flash structured extraction and display translation**, with provider-specific consent, source-excerpt validation and an unknown-answer filter. AI stays optional; the app displays the available extraction mode. [Hosted configuration and enforced quotas](docs/architecture.md#gemini-configuration-and-quotas) are documented separately.
 
 The development regression set contains **25 typed fictional accounts**, including Hindi/English and Kannada/English mixtures. Each account has five expected field decisions; results use strict accepted-excerpt matching.
 
