@@ -3,7 +3,7 @@ import { compare, nextStates } from './staff-demo.mjs';
 import { extractAccount, translateReview } from './intelligence.mjs';
 import { captureFormat, transcribe } from './speech.mjs';
 import { RequestError } from './errors.mjs';
-import { readSource, readPermissions, readDraft, validateEvidence, interfaceLanguages } from './account.mjs';
+import { readSource, readPermissions, readDraft, validateEvidence, interfaceLanguages, hasAIConsent } from './account.mjs';
 import { semanticScores } from './matching.mjs';
 import { featureRequest, featureDownload } from './features.mjs';
 
@@ -47,7 +47,8 @@ async function json(request, limit = 65536) {
   return value;
 }
 
-export function createCloudHandler({ url, serviceKey, origin, speechKey = '', aiKey = '', fetcher = fetch, rpc: injectedRpc } = {}) {
+export function createCloudHandler({ url, serviceKey, origin, speechKey = '', aiKey = '', aiProvider='openai', aiModel, aiGate, fetcher = fetch, rpc: injectedRpc } = {}) {
+  const embeddingKey=aiProvider==='openai'?aiKey:'';
   const call = injectedRpc ?? (async (action, credential = '', input = {}) => {
     const response = await fetcher(url + '/rest/v1/rpc/we_api', {
       method:'POST', headers:{ apikey:serviceKey, Authorization:'Bearer ' + serviceKey, 'Content-Type':'application/json' },
@@ -78,7 +79,7 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
       const cookies = new Map((request.headers.get('cookie')??'').split(';').map((item)=> { const i=item.indexOf('='); return [item.slice(0,i).trim(),item.slice(i+1)]; }));
       const worker = cookies.get(cookieName.worker) ?? '';
       const staff = cookies.get(cookieName.staff) ?? '';
-      const capabilities = { cloud:true,workspace:true,voiceAvailable:Boolean(speechKey),analysisAvailable:Boolean(aiKey),embeddingsAvailable:Boolean(aiKey) };
+      const capabilities = { cloud:true,workspace:true,voiceAvailable:Boolean(speechKey),analysisAvailable:Boolean(aiKey),embeddingsAvailable:Boolean(embeddingKey),aiProvider:aiKey?aiProvider:null };
       const rateKey = hash(request.headers.get('x-workecho-client') || 'global');
       if(path.startsWith('/api/features/')) {
         const route=featureRequest(requestUrl,method,method==='GET'?{}:await json(request,360_000));
@@ -144,7 +145,7 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
         const records = async () => (await rpc('staff_records',staff)).map(item=>({...item,id:item.id+':'+item.version+':direct'}));
         const candidates = async (rows) => {
           const [sources,decisions] = await Promise.all([rows ?? rpc('staff_records',staff),rpc('staff_decisions',staff)]);
-          const scores = await semanticScores(sources,{key:aiKey,fetcher});
+          const scores = await semanticScores(sources,{key:embeddingKey,fetcher});
           const byId=new Map(decisions.map(item=>[item.id,item]));
           return sources.filter(x=>x.matching).flatMap((left,i,all)=>all.slice(i+1).filter(right=>right.worker!==left.worker).flatMap(right=>{
             const match=compare(left,right); if(!match.show) return [];
@@ -210,12 +211,12 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
       if (intake && uuid(intake[1]) && method==='POST') {
         const current=await rpc('intake_get',worker,{id:intake[1]});
         if(intake[2]==='extract') {
-          const {transcript,allowAI}=await json(request); if(allowAI===true&&aiKey)await rpc('reserve',worker);
-          return respond(await extractAccount(transcript,{key:allowAI===true?aiKey:'',fetcher}));
+          const {transcript,allowAI,aiProvider:consentProvider}=await json(request), allowed=hasAIConsent(allowAI,consentProvider,aiProvider); if(allowed&&aiKey&&aiProvider==='openai')await rpc('reserve',worker);
+          return respond(await extractAccount(transcript,{key:allowed?aiKey:'',provider:aiProvider,model:aiModel,fetcher,beforeInference:aiGate?()=>aiGate({session:worker,ip:request.headers.get('x-workecho-client')||'global'}):undefined}));
         }
         if(intake[2]==='translate') {
-          const {fields,language,allowAI}=await json(request); if(allowAI===true&&aiKey)await rpc('reserve',worker);
-          return respond(await translateReview(fields,language,{key:allowAI===true?aiKey:'',fetcher}));
+          const {fields,language,allowAI,aiProvider:consentProvider}=await json(request), allowed=hasAIConsent(allowAI,consentProvider,aiProvider); if(allowed&&aiKey&&aiProvider==='openai')await rpc('reserve',worker);
+          return respond(await translateReview(fields,language,{key:allowed?aiKey:'',provider:aiProvider,model:aiModel,fetcher,beforeInference:aiGate?()=>aiGate({session:worker,ip:request.headers.get('x-workecho-client')||'global'}):undefined}));
         }
         if(intake[2]==='turns') {
           if(!current.voice) throw new RequestError(403,'Voice processing was declined.');

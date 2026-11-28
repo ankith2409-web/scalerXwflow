@@ -3,10 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { AudioLines, Plus, Folder, Users, Globe2, RotateCcw, Check, Lock, Info, Volume2, Download, ArrowRight, ArrowLeft, Mic } from 'lucide-react';
 import { request, jsonPost, usePlayback } from './voice';
 import { Dialog, Skeleton, Spinner } from './ui';
-import { fieldKeys, type Fields, type History, type Locale } from './workspace/types';
+import { allowsProvider, fieldKeys, type Fields, type History, type Locale } from './workspace/types';
 import { useWorkspace } from './workspace/useWorkspace';
 import { privacyCopy } from './workspace/privacy-copy';
 import {designCopy} from './workspace/design-copy';
+import {aiCopy} from './workspace/ai-copy';
 import {PrintHost,showPrint} from './features/print';
 import {featureCopy} from './features/copy';
 import {DeviceDraft} from './features/DeviceDraft';
@@ -25,6 +26,7 @@ function download(name: string, text: string) {
 }
 function Workspace() {
   const w = useWorkspace(), { data: d, t } = w,c=designCopy(d.language);
+  const a=aiCopy(d.language),provider=w.session?.aiProvider==='gemini'?'Google Gemini':w.session?.aiProvider==='openai'?'OpenAI':'AI';
   const [dialog, setDialog] = useState<'flow' | 'discard' | 'switch' | null>(null), [kept, setKept] = useState(false);
   const [notetaker, setNotetaker] = useState(false), [recovery, setRecovery] = useState('');
   const [translation, setTranslation] = useState<Fields | null>(null);
@@ -90,7 +92,7 @@ function Workspace() {
         {w.session?.active && <button className="v2-text v2-mobile-session" onClick={() => { setKept(false); setDialog('switch'); }}>{t.anotherWorker}</button>}
       </div></header>
       <div className="v2-content">
-        {demo && <p className="v2-demo-banner" role="status"><Info size={18}/>{t.demoNotice}</p>}
+        {demo && <p className="v2-demo-banner" role="status"><Info size={18}/>{a.demo}</p>}
         <h1 ref={heading} tabIndex={-1}>{headings[w.page]}</h1>
         <p className="v2-intro">{w.page === 'capture' ? t.intro : w.page === 'review' ? t.uncertain : w.page === 'saved' ? t.savedHelp : w.page === 'restore' ? t.recoveryHelp : t.finalHelp}</p>
         {['capture', 'review', 'saved'].includes(w.page) && <ol className="v2-steps" aria-label={t.review}>{[t.stepCapture, t.stepReview, t.stepSave].map((label, i) => <li key={label} className={i <= stage ? 'active' : ''} aria-current={i === stage ? 'step' : undefined}><span>{i < stage ? <Check size={15}/> : i + 1}</span>{label}</li>)}</ol>}
@@ -100,6 +102,7 @@ function Workspace() {
           <div className="v2-capture-layout">
           <section className="v2-capture-panel" aria-busy={w.busy}>
             <div className="v2-section-title"><h2>{t.capture}</h2><button className="v2-outline" onClick={() => setDialog('flow')}><Mic size={17}/>{t.flow}</button></div>
+            <p className="v2-ai-status" data-testid="ai-status">{w.session?.analysisAvailable?<><span className="v2-status-dot"/>{a.available} · {provider}</>:a.basic}</p>
             <div className="v2-tabs" role="group" aria-label={t.capture}>
               <button disabled={w.busy} aria-pressed={d.mode === 'story' && !notetaker} onClick={() => void switchMode('story')}>{t.story}</button>
               <button disabled={w.busy} aria-pressed={d.mode === 'guided' && !notetaker} onClick={() => void switchMode('guided')}>{t.guided}</button>
@@ -125,7 +128,7 @@ function Workspace() {
             <label><input id="consent-save" type="checkbox" checked={w.consent} onChange={e => void w.savePermission(e.target.checked)}/>{t.consentSave}</label><p className="v2-muted">{t.consentSaveHelp}</p>
           </fieldset>
           {sharing()}
-          <details className="v2-ai-choice"><summary>{c.optional}</summary><fieldset className="v2-consents" disabled={w.busy}><label><input id="consent-ai" type="checkbox" checked={d.source.aiAllowed} disabled={!w.session?.analysisAvailable || demo} onChange={e => w.update({ source: { ...d.source, aiAllowed: e.target.checked } })}/>{t.consentAI}</label><p className="v2-muted">{w.session?.analysisAvailable ? t.consentAIHelp : t.aiUnavailable}</p></fieldset></details>
+          <details className="v2-ai-choice" open={Boolean(w.session?.analysisAvailable)}><summary>{c.optional}</summary><fieldset className="v2-consents" disabled={w.busy}><label><input id="consent-ai" type="checkbox" checked={allowsProvider(d.source,w.session?.aiProvider)} disabled={!w.session?.analysisAvailable} onChange={e => w.update({ source: { ...d.source, aiAllowed: e.target.checked, aiProvider: e.target.checked ? w.session?.aiProvider : null } })}/>{a.consent.replace('{provider}',provider)}</label><p className="v2-muted">{w.session?.analysisAvailable ? t.consentAIHelp : t.aiUnavailable}</p></fieldset></details>
           </aside></div>
           <div className="v2-bottom-action"><button className="v2-primary" disabled={w.busy || !canPrepare} onClick={() => void w.prepare()}>{w.busy ? <Spinner/> : <ArrowRight size={18}/>}{d.mode === 'guided' ? t.manualReview : t.prepare}</button>{draftStatus()}</div>
         </>}
@@ -134,7 +137,7 @@ function Workspace() {
             <section><h2>{t.source}</h2><blockquote>{d.source.text || t.noSource}</blockquote><p className="v2-muted">{t.originalLanguage}: {d.source.language ?? '—'}</p><span className="v2-method">{d.source.analysis === 'model' ? t.ai : t.basic}</span></section>
             <section><h2>{t.correction}</h2><p className="v2-muted">{valueCount}/5 {t.fieldsCount}. {t.uncertain}</p><fieldset disabled={w.busy} className="v2-fields">{fieldKeys.map((key, i) => <label key={key} htmlFor={'field-' + key}>{t.fields[i]}<input id={'field-' + key} maxLength={500} value={d.fields[key] ?? ''} placeholder={t.missing} onChange={e => w.update({ fields: { ...d.fields, [key]: e.target.value || null } })}/>{!d.fields[key] && <small>{t.questions[i]} {t.hints[i]}</small>}{d.evidence[key] && <small>{t.sourceQuote}: “{d.evidence[key]}”</small>}</label>)}</fieldset>
               <div className="v2-actions"><button className="v2-text" onClick={() => { if (voice.playing) voice.stop(); else voice.speak(fieldKeys.map((key, i) => t.fields[i] + ': ' + (d.fields[key] ?? t.missing)).join('. '), () => w.setNotice(t.noVoice)); }}><Volume2 size={17}/>{voice.playing ? t.stopRead : t.read}</button>
-              {d.source.aiAllowed && w.session?.analysisAvailable && !w.revision && <button className="v2-text" disabled={w.busy} onClick={() => void w.run(async () => { await w.flush(); const draft = await request<{ id: string }>('/api/draft'); const result = await request<{ available: boolean; fields: Fields }>('/api/intakes/' + draft.id + '/translate', jsonPost({ fields: d.fields, language: d.language, allowAI: true })); if (result.available) setTranslation(result.fields); else w.setNotice(t.translationFailed); })}>{t.translate}</button>}</div>
+              {allowsProvider(d.source,w.session?.aiProvider) && w.session?.analysisAvailable && !w.revision && <button className="v2-text" disabled={w.busy} onClick={() => void w.run(async () => { await w.flush(); const draft = await request<{ id: string }>('/api/draft'); const result = await request<{ available: boolean; fields: Fields }>('/api/intakes/' + draft.id + '/translate', jsonPost({ fields: d.fields, language: d.language, allowAI: true, aiProvider: d.source.aiProvider })); if (result.available) setTranslation(result.fields); else w.setNotice(t.translationFailed); })}>{t.translate}</button>}</div>
               {translation && <aside className="v2-translation"><h3>{t.translation}</h3><dl>{fieldKeys.map((key, i) => <div key={key}><dt>{t.fields[i]}</dt><dd>{translation[key] ?? t.missing}</dd></div>)}</dl></aside>}
             </section>
           </div>

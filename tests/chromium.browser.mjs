@@ -118,6 +118,23 @@ try{
   await wait(`document.querySelector('.feature-extras')`);await evaluate(`document.querySelector('.feature-extras').open=true`);await wait(`document.querySelector('.feature-extras select')`);await evaluate(`{const s=document.querySelector('.feature-extras select');s.value='approximate';s.dispatchEvent(new Event('change',{bubbles:true}));}`);await fill('input[id$="start"]','2009');await fill('input[id$="end"]','2011');await click('Save details');await wait(`fetch('/api/features/timeline').then(r=>r.json()).then(rows=>rows.some(x=>x.kind==='details'&&x.data.startYear===2009))`);
   await click('Print / Save as PDF');await wait(`document.querySelector('dialog[open] .feature-report')`);assert.equal(await evaluate(`document.querySelector('dialog .feature-report').textContent.includes(${JSON.stringify(code)})`),false);const pdf=await send('Page.printToPDF',{printBackground:true,preferCSSPageSize:true});assert.ok(Buffer.from(pdf.data,'base64').subarray(0,5).toString()==='%PDF-');await evaluate(`document.querySelector('dialog .icon-button').click()`);
   const fixture=join(profile,'synthetic-evidence.pdf');await writeFile(fixture,'%PDF-1.4\nSynthetic browser test\n%%EOF');const documentNode=await send('DOM.getDocument');const fileNode=await send('DOM.querySelector',{nodeId:documentNode.root.nodeId,selector:'.feature-extras input[type="file"]'});await send('DOM.setFileInputFiles',{nodeId:fileNode.nodeId,files:[fixture]});await click('Attach file');await wait(`document.querySelector('.feature-file')?.textContent.includes('synthetic-evidence.pdf')`);assert.equal((await api('/api/features/history/'+rows[0].id)).attachments[0].data.shared,false);
+  // Collapse/reopen must preserve unsaved metadata, and successful save must refresh its baseline.
+  await evaluate(`document.querySelector('.feature-extras').open=false`);await pause(80);await evaluate(`document.querySelector('.feature-extras').open=true`);await pause(200);
+  await evaluate(`{const e=document.querySelector('input[id$="start"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'2005');e.dispatchEvent(new Event('input',{bubbles:true}));}`);
+  const editedYear=await evaluate(`document.querySelector('input[id$="start"]').value`);
+  await evaluate(`document.querySelector('.feature-extras').open=false`);await pause(80);await evaluate(`document.querySelector('.feature-extras').open=true`);await pause(250);
+  assert.equal(await evaluate(`document.querySelector('input[id$="start"]').value`),editedYear,'Unsaved dates survive reopening');
+  // Retry the same file after the server commits but its successful response is lost.
+  const secondFixture=join(profile,'synthetic-retry.pdf');await writeFile(secondFixture,'%PDF-1.4\nSynthetic retry\n%%EOF');
+  const secondDoc=await send('DOM.getDocument'),secondInput=await send('DOM.querySelector',{nodeId:secondDoc.root.nodeId,selector:'.feature-extras input[type="file"]'});
+  await send('DOM.setFileInputFiles',{nodeId:secondInput.nodeId,files:[secondFixture]});let uploadDropped=false;
+  const dropUpload=({data})=>{const e=JSON.parse(data);if(e.method!=='Fetch.requestPaused')return;if(!uploadDropped&&e.params.responseStatusCode>=200&&e.params.responseStatusCode<300){uploadDropped=true;void send('Fetch.failRequest',{requestId:e.params.requestId,errorReason:'ConnectionClosed'});}else void send('Fetch.continueRequest',{requestId:e.params.requestId});};
+  socket.addEventListener('message',dropUpload);await send('Fetch.enable',{patterns:[{urlPattern:'*/api/features/history/*/attachments',requestStage:'Response'}]});await click('Attach file');
+  await wait(`document.querySelector('.feature-extras [role="status"]')?.textContent.includes('could not')`);await send('Fetch.disable');socket.removeEventListener('message',dropUpload);assert.equal(uploadDropped,true);
+  assert.equal((await api('/api/features/history/'+rows[0].id)).attachments.length,2);
+  await click('Attach file');await wait(`document.querySelectorAll('.feature-file').length===2`);await pause(150);
+  assert.equal((await api('/api/features/history/'+rows[0].id)).attachments.length,2,'Retry creates no duplicate attachment');
+  assert.equal(await evaluate(`document.querySelector('input[id$="start"]').value`),editedYear,'Attachment reload preserves unsaved dates');
   await click('Correct details');await wait(`document.querySelector('#field-task')`);await fill('#field-task',' and polished');await click('Confirm and save this job');
   await wait(`document.querySelector('.v2-records h2')`);rows=await api('/api/history');assert.equal(rows[0].source.text,story);assert.equal(rows[0].version,2);
   await click('Start a different worker');await wait(`document.querySelector('dialog[open]')`);await evaluate(`document.querySelector('dialog input[type="checkbox"]').click()`);await click('Close and start another worker');
@@ -149,8 +166,24 @@ try{
   assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth'),true);
   await fill('#people-search','Blue gate');await wait(`Array.from(document.querySelectorAll('.queue-item')).filter(e=>e.closest('.queue')).every(e=>e.textContent.includes('Tumakuru'))&&document.querySelectorAll('.queue-item').length>0`);assert.ok(await evaluate(`Boolean(document.querySelector('.comparison a[href^="https://www.openstreetmap.org/"]'))`));
   await click('Referrals');assert.ok(await evaluate(`location.search==='?demo=1'`));
+  let aiQuotaCalls=0;
+  const aiServer=createApp({dbPath:':memory:',workspace:true,speechKey:'',aiKey:'provider-double',aiProvider:'gemini',aiGate:async()=>{aiQuotaCalls++;throw Object.assign(new Error('Quota reached'),{status:429});}});
+  aiServer.listen(0,'127.0.0.1');await once(aiServer,'listening');
+  try{
+    const aiOrigin='http://127.0.0.1:'+aiServer.address().port;
+    await send('Page.navigate',{url:aiOrigin});await wait(`document.querySelector('#consent-ai')&&!document.querySelector('#consent-ai').disabled`);
+    assert.ok(await evaluate(`document.querySelector('[data-testid="ai-status"]').textContent.includes('Google Gemini')`));
+    assert.ok(await evaluate(`document.querySelector('#consent-ai').closest('label').textContent.includes('Google Gemini')`));
+    assert.equal(await evaluate(`document.querySelector('#consent-ai').checked`),false,'AI consent is never preselected');
+    await fill('#work-account','I cut stone in Jodhpur before lockdown.');await evaluate(`document.querySelector('#consent-save').click();document.querySelector('#consent-ai').click()`);await wait(`document.querySelector('.v2-draft-status.saved')`);
+    assert.equal(await evaluate(`fetch('/api/draft').then(r=>r.json()).then(r=>r.data.source.aiProvider)`),'gemini','Provider-specific consent survives draft storage');
+    const legacyMethod=await evaluate(`(async()=>{const d=await fetch('/api/draft').then(r=>r.json());const r=await fetch('/api/intakes/'+d.id+'/extract',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({transcript:d.data.source.text,allowAI:true,aiProvider:'openai'})});return (await r.json()).method;})()`);
+    assert.equal(legacyMethod,'rules');assert.equal(aiQuotaCalls,0,'An old provider permission cannot reserve Gemini inference');
+    await click('Prepare my review');await wait(`document.querySelector('#field-place')`);assert.equal(aiQuotaCalls,1);
+    assert.equal(await evaluate(`document.querySelector('#field-place').value`),'Jodhpur');assert.ok(await evaluate(`document.querySelector('.v2-message').textContent.includes('AI usage limit reached')`));assert.ok(await evaluate(`document.querySelector('.v2-method').textContent.includes('Suggested from your text')`));
+  }finally{await send('Page.navigate',{url:'about:blank'});await new Promise(resolve=>aiServer.close(resolve));}
   assert.deepEqual(errors,[]);
-  console.log('Chromium passed: languages, keyboard skip navigation, five responsive widths across capture/review/history/staff, mobile comparison focus, Flow readiness, private QR round trip, lost-response retry without duplicate saves, encrypted offline reload/unlock/reconnect, timeline dates, private attachment upload, printable PDF, source-preserving correction, recovery, workplace directory/link, case assignment and no browser exceptions.'+(skipOfflineReload?' Offline reload was explicitly skipped in this environment.':''));
+  console.log('Chromium passed: languages, keyboard skip navigation, five responsive widths across capture/review/history/staff, mobile comparison focus, Flow readiness, private QR round trip, lost-response retry without duplicate saves, encrypted offline reload/unlock/reconnect, timeline dates, private attachment upload, printable PDF, source-preserving correction, recovery, workplace directory/link, case assignment, retry-safe uploads, preserved unsaved metadata, Gemini consent/quota fallback and no browser exceptions.'+(skipOfflineReload?' Offline reload was explicitly skipped in this environment.':''));
   console.log('Screenshot:',screenshotPath);
 }finally{
   socket?.close();chrome.kill();await new Promise(resolve=>server.close(resolve));await pause(500);

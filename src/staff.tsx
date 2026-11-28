@@ -149,7 +149,7 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
       <main className="staff-main" id="staff-main" tabIndex={-1} aria-busy={busy}>
         <div key={title} className="motion-page">
         <div className="staff-title"><h1 ref={heading} tabIndex={-1}>{title}</h1>
-          {active !== null && <p className="demo-note"><Info size={17} aria-hidden="true" />{cloud ? 'Shared workspace. Log outreach performed outside WorkEcho.' : workspace ? 'Local workspace. Log outreach performed outside WorkEcho.' : 'Fictional records. All outreach is simulated.'}</p>}
+          {active !== null && <p className="demo-note"><Info size={17} aria-hidden="true" />{cloud ? 'Shared workspace. Log outreach performed outside WorkEcho.' : workspace ? 'Local workspace. Log outreach performed outside WorkEcho.' : 'Fictional sandbox · 30-minute session. All outreach is simulated.'}</p>}
           {active && <button className="quiet" disabled={busy} onClick={() => void run(async () => { await load(); setMessage('Workspace refreshed.'); })}>Refresh records</button>}
           {active && cloud && <p className="muted">Signed in as {email || role}. Only workers’ shared histories appear here.</p>}
         </div>

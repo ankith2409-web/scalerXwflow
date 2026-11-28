@@ -30,15 +30,30 @@ The hosted Notetaker import uses OAuth with PKCE and the official Wispr MCP serv
 
 Public metadata discovery and provider-double tests have passed. Real-account authorization and authenticated transcript import remain unverified end to end. Account connections are disabled in the fictional demo. See [verification](verification.md) for the distinction between synthetic and provider checks.
 
-## Optional text models
+## Text models
 
-`WORKECHO_AI_ENABLED=0` is the default and current deployed setting. Core capture, review, consent, confirmation and staff review work without model credentials. No live inference or model-quality benchmark is claimed.
+The Gemini adapter performs structured extraction and separate display translation using gemini-3.5-flash-lite. Model output is validated against exact source excerpts and clear unknown-answer spans are discarded. The original source is preserved, and the worker reviews all five fields.
 
-The server contains optional adapters for structured extraction and a separate display translation using `gpt-4.1-mini`, and candidate ranking using `text-embedding-3-small`. Model identifiers are configurable through `OPENAI_MODEL` and `OPENAI_EMBEDDING_MODEL`. Any future activation requires a server-side provider credential and an explicit usage budget; this documentation does not enable either.
+The worker sees the current extraction mode and chooses provider-specific text-processing consent. When AI is unavailable, declined, over quota or interrupted, basic suggestions/manual review remain available. The Gemini credential is server-side and is never sent to OpenAI or browser JavaScript. Gemini processes text only; speech input stays with Wispr Flow.
 
-Extraction proposals must use exact excerpts from the source. Translation is displayed separately and never replaces the original record. Provider failures fall back to basic suggestions. Device readback uses an installed local voice and reports when none is available for the chosen language.
+Legacy OpenAI extraction/translation and embedding adapters remain available as an alternative configuration. Gemini does not enable OpenAI embedding ranking. Consent records name the chosen provider; legacy OpenAI permission cannot authorize Gemini, and Gemini permission cannot authorize later OpenAI embedding requests. [Development evaluation](extraction-evaluation.md) records 25 real Gemini responses on typed fictional inputs.
 
-Embedding ranking requires both AI and comparison permission on each record. Only the five confirmed fields are sent, in batches of at most 40 records, with a bounded ten-minute hash/vector cache. Ranking does not override locality conflicts, accept links or create referrals.
+### Gemini configuration and quotas
+
+Local/Docker startup remains keyless. Hosted activation requires an explicit operator decision, WORKECHO_AI_ENABLED=1, WORKECHO_AI_PROVIDER=gemini, a sensitive server-side GEMINI_API_KEY and GEMINI_MODEL=gemini-3.5-flash-lite. The fictional hosted demo additionally requires WORKECHO_DEMO_AI_ENABLED=1 and Neon. A prepared credential alone does not activate processing.
+
+Before a provider request, one atomic database statement reserves all four allowances in the existing private we_limits table:
+
+| Scope | Maximum |
+| --- | ---: |
+| Project total across deployments | 200 reservations |
+| Project per UTC day | 50 reservations |
+| Worker session per UTC day | 10 reservations |
+| Client address per fixed 30-minute window | 25 reservations |
+
+The total counter has no automatic reset. Server input is bounded to 12,000 characters and output to 1,800 tokens. Counters contain hashed session/address identifiers and counts, not worker text. Failed reservations/provider requests may consume allowance conservatively. Database errors fail closed before model access. No schema migration is needed. These are application request limits, not a change to the provider account's billing settings.
+
+Hosted availability is controlled by runtime flags and shown in the app. At this release's verification point, hosted AI remained off. [Verification](verification.md) separates the live configuration from isolated provider testing.
 
 ## Offline drafts
 

@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { createCloudHandler } from '../server/cloud.mjs';
 import {featureContract} from './features-contract.mjs';
+import {createAIBudget} from '../server/ai-budget.mjs';
 const root=process.env.PGLITE_ROOT;
 if(!root) throw new Error('Set PGLITE_ROOT to the @electric-sql/pglite installation directory.');
 const {PGlite}=await import(pathToFileURL(root+'/dist/index.js').href);
@@ -41,17 +42,19 @@ try {
   for(const [initial,final] of [[true,false],[false,true]]){
     const call=client();
     const start=await call('/api/intakes','POST',{language:'kn',save:true,voice:false,matching:initial,outreach:initial});
-    const source={kind:'wispr-dictation',text:Object.values(fields).join('\n'),aiAllowed:false};
+    const source={kind:'wispr-dictation',text:Object.values(fields).join('\n'),aiAllowed:true,aiProvider:'gemini'};
     const data={language:'kn',mode:'story',page:'review',step:0,source,fields,evidence:fields,permissions:{matching:final,outreach:false}};
     const payload={version:0,operation:randomUUID(),data};const path='/api/intakes/'+start.data.id+'/draft';
     const draft=await call(path,'POST',payload);assert.equal(draft.status,200,JSON.stringify(draft));assert.equal(draft.data.version,1);
     assert.deepEqual((await call(path,'POST',payload)).data,draft.data);
     assert.equal((await call(path,'POST',{...payload,operation:randomUUID()})).status,409);
     assert.equal((await call('/api/draft')).data.data.language,'kn');
+    assert.equal((await call('/api/draft')).data.data.source.aiProvider,'gemini');
     assert.equal((await stranger(path,'DELETE')).status,404);
     const confirmed={fields,evidence:fields,source,permissions:{matching:final,outreach:false},confirmed:true,operation:randomUUID()};
     const saved=await call('/api/intakes/'+start.data.id+'/confirm','POST',confirmed);
     assert.equal(saved.status,200,JSON.stringify(saved));assert.equal(saved.data.permissions.matching,final);assert.equal(saved.data.source.text,source.text);
+    assert.equal(saved.data.source.aiProvider,'gemini');
     assert.equal((await call('/api/draft')).data,null);
     assert.equal((await call(path,'POST',{...payload,version:1,operation:randomUUID()})).status,409);
     assert.equal((await call('/api/intakes/'+start.data.id+'/confirm','POST',{...confirmed,permissions:{matching:!final,outreach:false}})).status,409);
@@ -134,5 +137,17 @@ try {
   await assert.rejects(()=>sandbox('write','conflicting fixture'),/409/);
   for(const role of ['anon','authenticated']){await db.exec('set role '+role);await assert.rejects(()=>db.query('select public.we_feature_api($1,$2)', ['','{}']),/permission denied/);await assert.rejects(()=>db.query('select * from public.we_feature_items'),/permission denied/);await assert.rejects(()=>db.query('select * from public.we_sandboxes'),/permission denied/);await db.exec('reset role');}
   console.log('PostgreSQL checks passed: separate clients, privacy, bootstrap login, matching, referral approval, withdrawal, recovery, revision conflicts, and denied anonymous database access.');
+  const query=(sql,args)=>db.query(sql,args),stamp=Date.now();
+  const makeGate=()=>createAIBudget({query,now:()=>stamp});
+  const firstGate=makeGate();for(let i=0;i<10;i++)await firstGate({session:'quota-worker',ip:'quota-address'});
+  // A new application instance shares the same counters. Existing RPC cleanup must preserve them.
+  await db.query('select public.we_api($1,$2,$3)', ['session','','{}']);
+  await assert.rejects(makeGate()({session:'quota-worker',ip:'quota-address'}),{status:429});
+  const attempts=await Promise.allSettled(Array.from({length:50},(_,i)=>makeGate()({session:'parallel-'+i,ip:'parallel-'+i})));
+  assert.ok(attempts.filter(x=>x.status==='fulfilled').length<=39,'Global durable daily quota stays bounded under concurrent callers');
+  const counters=(await db.query("select key,uses from public.we_limits where key like 'daily:workecho-ai:%'" )).rows;
+  assert.ok(counters.find(x=>x.key==='daily:workecho-ai:project').uses<=50);
+  assert.ok(counters.find(x=>x.key==='daily:workecho-ai:total').uses<=200);
+  console.log('Durable AI quota passed: shared across instances, preserved by RPC cleanup, session and concurrent global limits, no schema migration.');
 } catch(error) { console.error('PostgreSQL verification failed:',error.message,error.detail??'',error.where??'',error.position??'',error.internalQuery??''); if(error.query && error.position)console.error(error.query.slice(Math.max(0,Number(error.position)-120),Number(error.position)+120)); process.exitCode=1; }
 finally {await db.close();}

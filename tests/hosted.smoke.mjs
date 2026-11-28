@@ -8,7 +8,8 @@ async function call(path,method='GET',data,expected=200,source=origin){
   const result=await response.json();assert.equal(response.status,expected,path+': '+JSON.stringify(result));return result;
 }
 assert.equal((await fetch(origin)).status,200);
-const session=await call('/api/session');assert.equal(session.cloud,true);assert.equal(session.analysisAvailable,false);assert.equal(session.embeddingsAvailable,false);
+const session=await call('/api/session');assert.equal(session.cloud,true);assert.equal(typeof session.analysisAvailable,'boolean');assert.equal(session.embeddingsAvailable,false);
+if(session.analysisAvailable)assert.equal(session.aiProvider,'gemini');
 assert.match((await call('/api/history','GET',undefined,401)).error,/Open your work history/);
 assert.match((await call('/api/staff/search?query=Jodhpur&page=1','GET',undefined,401)).error,/Sign in/);
 await call('/api/staff/matches','GET',undefined,401);
@@ -37,4 +38,4 @@ assert.equal((await call('/api/demo/features/cases')).total,0);
 await call('/api/demo/history/'+saved.id,'DELETE',{confirmed:true,version:saved.version});assert.deepEqual(await call('/api/demo/history'),[]);
 await call('/api/demo/session','DELETE');await call('/api/demo/history','GET',undefined,401);
 assert.equal(jar.has('we_cloud_worker'),false);
-console.log('Hosted smoke passed: public UI, private-route denial, AI disabled, isolated capture, directory/link, dates, private attachment, assigned case, withdrawal and deletion.');
+console.log('Hosted smoke passed: public UI, private-route denial, advertised AI mode with opt-out, isolated capture, directory/link, dates, private attachment, assigned case, withdrawal and deletion.');

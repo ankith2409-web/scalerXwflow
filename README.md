@@ -1,62 +1,70 @@
 # WorkEcho — Scaler × Wispr Flow
 
-**Turn a worker’s spoken job history into a record they can check, keep and choose to share.**
+**Voice-led work histories for stone-worker health outreach.**
 
-WorkEcho is a working prototype for NGO field teams interviewing stone workers. It preserves the worker’s original words, organizes five remembered details and helps staff review possible shared workplaces for consented follow-up.
+**Track: Healthcare.** WorkEcho helps NGO field teams capture a worker's story with Wispr Flow, review five remembered details and investigate shared workplaces for silicosis-related follow-up.
 
 [![Verify WorkEcho](https://github.com/ankith2409-web/scalerXwflow/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/ankith2409-web/scalerXwflow/actions/workflows/verify.yml)
 
 ## Open the app
 
-| Link | Purpose |
+| | |
 | --- | --- |
-| **[Live app on Vercel](https://workecho-psi.vercel.app/)** | Hosted worker workspace and Wispr account connection |
-| **[Worker demo](https://workecho-psi.vercel.app/?demo=1)** | Try capture, review and saving with fictional information |
-| **[Staff demo](https://workecho-psi.vercel.app/staff/review?demo=1)** | Explore fictional comparisons and simulated referrals without a staff account |
+| **[Live app](https://workecho-psi.vercel.app/)** | Hosted worker workspace and Wispr account connection |
+| **[Worker demo](https://workecho-psi.vercel.app/?demo=1)** | Capture, review, confirm and reopen a fictional work history |
+| **[Staff demo](https://workecho-psi.vercel.app/staff/review?demo=1)** | Compare fictional accounts and try a simulated referral |
 
-Use the demo links for evaluation. Their sandbox is separate from real worker records and expires after 30 minutes. Account connections, paid AI and actual outreach are disabled in the sandbox.
+The demo includes **43 fictional workers across 10 workplace scenarios**. Its 30-minute session notice is shown in the app.
 
-## Why WorkEcho exists
+![Review the original account beside five editable fields and their source excerpts](docs/images/workecho-review.png)
 
-A worker may remember a contractor’s nickname, a railway crossing or a season rather than a formal employer name and exact dates. Field teams need to preserve that account and compare it with others without turning uncertain memories into facts.
+<details>
+<summary>See capture and staff comparison screens</summary>
 
-For example, a **fictional** interview might say:
+![Worker capture and separate consent choices](docs/images/workecho-capture.png)
 
-> I cut stone slabs at Raju shed near the railway crossing in Jodhpur for two monsoons before lockdown.
+![Staff compare two fictional workplace accounts before recording a reasoned decision](docs/images/workecho-staff.png)
 
-WorkEcho helps the worker review **place, work, approximate time, landmark and workplace or contractor name**. With permission, staff can investigate shared workplace clues and coordinate occupational-health follow-up. A suggested link is a lead for human review, not proof of employment or a medical diagnosis.
+</details>
 
-## Try the core flow
+## Why this matters
 
-1. Open the **[worker demo](https://workecho-psi.vercel.app/?demo=1)**. Select **Try a fictional example** for sample text, or dictate fictional information using your installed Wispr Flow app. **One question at a time** offers guided entry.
-2. Select **Save my draft and work history**. Choose comparison sharing and follow-up separately. Select **Prepare my review**, check the fields against **Original words**, then **Confirm and save this job**. Unknown details can stay blank. Inspect the private return card and recovery options.
-3. Open the **[staff demo](https://workecho-psi.vercel.app/staff/review?demo=1)** and select **Enter as demo staff**. Inspect a seeded **Worker A / Worker B** comparison, record a decision reason and explore a simulated referral. The fixtures contain **43 fictional workers across 10 workplace scenarios** in five Indian cities.
+WorkEcho is designed for workers whose jobs may be remembered through a contractor's nickname, a railway crossing or a monsoon rather than formal employment records. Preserving those details helps a field team connect accounts and arrange consented follow-up.
 
-## How it uses Wispr Flow
+In a project described in **ICMR's 2019–20 annual report**, **12% of about 350 screened sandstone miners had respiratory symptoms**. The project focused on early diagnosis and referral for silicosis. [Read the source, page 132](https://www.icmr.gov.in/icmrobject/custom_data/pdf/annual-reports/ICMR_AR_English_2019_20_final.pdf).
 
-- **Flow-dictated input:** focus an answer and use the configured Wispr Flow shortcut or device keyboard. Flow inserts the text; WorkEcho handles review, consent and saving. The website does not operate Flow’s microphone or use a replacement recognizer.
-- **Wispr Notetaker import:** select **From Wispr Notetaker** in the **[live app](https://workecho-psi.vercel.app/)**. OAuth with PKCE and the official Wispr MCP server retrieve a selected meeting transcript. A real account with Notetaker access is required. MCP imports transcripts; it does not start recordings.
+## Try it in three steps
 
-The worker interface supports **English, Hindi and Kannada**; staff screens use English. Dictation language and device support depend on Wispr Flow. Real-device dictation and authenticated Notetaker import still need end-to-end verification.
+1. Open the **worker demo** and choose **Try a fictional example**, or dictate fictional information with your installed Wispr Flow app. **One question at a time** offers guided entry.
+2. Select **Save my draft and work history**, choose sharing and optional text-assistance permissions, then **Prepare my review**. Check **place, work, approximate time, landmark and workplace/contractor name** against the original words. Confirm the job and inspect the private return card.
+3. Open the **staff demo**, select **Enter as demo staff** and inspect **Worker A / Worker B**. Record a workplace decision with a reason, then follow the simulated referral through its approval step.
 
-## What works today
+The interviewer operates WorkEcho alongside the worker. First-person labels represent the worker's choices: read the details and sharing options back to them before confirmation.
 
-| Capability | Behavior |
-| --- | --- |
-| Worker review | Original text beside editable fields and source excerpts |
-| Consent and ownership | Separate save, comparison and follow-up choices; recovery, correction, export, withdrawal and per-job deletion |
-| Staff review | Shared-account comparisons, decision reasons and permission-gated referrals |
-| Offline editing | Optional encrypted device drafts and reconnect checks; final confirmation requires a connection |
+## Built for Wispr Flow
 
-Supporting tools include remembered-year timelines, printable reports, private attachments, optional maps, a workplace directory and case management. Technical details and boundaries are in [architecture](docs/architecture.md).
+- **Dictation:** focus a story or answer field and use the configured Wispr Flow shortcut or device keyboard. Flow supplies the text; WorkEcho turns it into a reviewable, consented work history.
+- **Notetaker import:** **From Wispr Notetaker** in the live app connects a real account through OAuth with PKCE and retrieves a selected meeting transcript through the official Wispr MCP server.
+- **Languages:** worker prompts support English, Hindi and Kannada. Original text and source excerpts stay in the worker's language.
 
-**AI is disabled in the deployed app and demo.** Basic rules and guided manual entry remain available. Optional model adapters exist, but no live inference or multilingual accuracy result is claimed.
+## Text extraction and review
 
-This is a prototype: production staff provisioning and target-user usability testing remain outstanding. Two open QA defects affect interrupted-upload retries and unsaved date edits. See [verification and known issues](docs/verification.md#known-issues) before using it beyond a demonstration.
+The server includes **Gemini Flash structured extraction and display translation**, with provider-specific consent, source-excerpt validation and an unknown-answer filter. The app displays the available extraction mode. [Hosted configuration and enforced quotas](docs/architecture.md#gemini-configuration-and-quotas) are documented separately.
+
+The development regression set contains **25 typed fictional accounts**, including Hindi/English and Kannada/English mixtures. Each account has five expected field decisions; results use strict accepted-excerpt matching.
+
+| Input group | Accounts | Rules: matched fields | Gemini: matched fields |
+| --- | ---: | ---: | ---: |
+| English | 7 | 34/35 (97.1%) | 34/35 (97.1%) |
+| Hindi / Hinglish | 8 | 20/40 (50%) | 38/40 (95%) |
+| Kannada / mixed English | 10 | 23/50 (46%) | 47/50 (94%) |
+| Total | 25 | 77/125 (61.6%) | 119/125 (95.2%) |
+
+The [evaluation details and observed outputs](docs/extraction-evaluation.md) show the method and remaining mismatches. [Fixtures](tests/fixtures/extraction-cases.json) are included for reproduction.
 
 ## Run from source
 
-The Vercel links above are the public preview. For local evaluation, install Docker with Linux containers running:
+Docker provides a keyless evaluation of capture, review, saving, recovery and local staff access:
 
 ```sh
 git clone https://github.com/ankith2409-web/scalerXwflow.git
@@ -64,34 +72,14 @@ cd scalerXwflow
 docker compose up --build
 ```
 
-Open the local address printed by the container. No API keys, environment file or cloud account are required for manual capture, confirmation, recovery or local staff access. Docker exposes port 3000 and preserves SQLite records in a named volume. Stop with `docker compose down`; adding `-v` deletes that volume.
+Open the local address printed by the container. Docker preserves SQLite data in a named volume. Node.js contributors can use **24.12+**, then run `npm ci`, `npm run build` and `npm start`.
 
-For Node.js development, use **24.12 or newer**:
+The interface uses React/TypeScript; the backend uses Node.js with SQLite locally and Neon PostgreSQL on Vercel. Supporting tools include recovery, export, sharing withdrawal, timelines, private files, optional maps, a workplace directory and case management.
 
-```sh
-npm ci
-npm run build
-npm start
-```
+**Suggested links are review leads for NGO staff, not automated employment proof or medical diagnoses.**
 
-Use the address printed by the server; it selects an available development port. Optional configuration is documented in [.env.example](.env.example).
-
-## Engineering and verification
-
-React and TypeScript power the interface. The Node.js backend uses SQLite locally and Neon PostgreSQL on Vercel, with scoped worker sessions, staff roles, version checks and audit events.
-
-The latest QA run passed **48 automated tests**, the production build, PostgreSQL checks, Chromium workflows and keyless Docker startup. Browser checks cover consent, recovery, encrypted offline reload, private files, source-preserving corrections and staff tools. These results do not establish real-world matching accuracy or production readiness.
-
-```sh
-npm test
-npm run build
-npm run test:browser
-npm run test:cloud
-```
-
-Browser tests require `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; PostgreSQL tests require `PGLITE_ROOT`. Setup and coverage are documented below.
-
-- [Architecture, data flow and optional integrations](docs/architecture.md)
-- [Verification, test setup and known issues](docs/verification.md)
-- [Operations, staff provisioning and recovery](docs/operations.md)
-- [Database schema](database/workecho.sql) and [ordered migrations](database/migrations)
+- [Architecture, integrations and configuration](docs/architecture.md)
+- [Verification, regression coverage and limitations](docs/verification.md)
+- [Operations and staff setup](docs/operations.md)
+- [Demo recording guide](docs/demo-runbook.md)
+- [Configuration example](.env.example), [schema](database/workecho.sql) and [migrations](database/migrations)

@@ -1,5 +1,7 @@
 import { createCloudHandler } from './cloud.mjs';
 import { RequestError } from './errors.mjs';
+import {aiConfig} from './ai-config.mjs';
+import {createNeonAIBudget} from './ai-budget.mjs';
 
 export async function createNeonRpc(connectionString=process.env.DATABASE_URL){
   const { neon } = await import('@neondatabase/serverless');
@@ -17,6 +19,6 @@ export async function createNeonRpc(connectionString=process.env.DATABASE_URL){
   };
 }
 export async function createNeonHandler({ connectionString = process.env.DATABASE_URL, origin = process.env.APP_ORIGIN,
-  aiKey = process.env.WORKECHO_AI_ENABLED === '1' ? process.env.OPENAI_API_KEY : '', speechKey = process.env.SARVAM_API_KEY } = {}) {
-  return createCloudHandler({origin,aiKey,speechKey,rpc:await createNeonRpc(connectionString)});
+  aiKey = aiConfig().key, aiProvider=aiConfig().provider,aiModel=aiConfig().model,speechKey = process.env.SARVAM_API_KEY } = {}) {
+  return createCloudHandler({origin,aiKey,aiProvider,aiModel,aiGate:aiKey?await createNeonAIBudget(connectionString):undefined,speechKey,rpc:await createNeonRpc(connectionString)});
 }
