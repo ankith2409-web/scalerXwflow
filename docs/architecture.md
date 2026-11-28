@@ -36,7 +36,7 @@ The Gemini adapter performs structured extraction and separate display translati
 
 The worker sees the current extraction mode and chooses provider-specific text-processing consent. When AI is unavailable, declined, over quota or interrupted, basic suggestions/manual review remain available. The Gemini credential is server-side and is never sent to OpenAI or browser JavaScript. Gemini processes text only; speech input stays with Wispr Flow.
 
-Legacy OpenAI extraction/translation and embedding adapters remain available as an alternative configuration. Gemini does not enable OpenAI embedding ranking. [Development evaluation](extraction-evaluation.md) records 25 real Gemini responses on typed fictional inputs.
+Legacy OpenAI extraction/translation and embedding adapters remain available as an alternative configuration. Gemini does not enable OpenAI embedding ranking. Consent records name the chosen provider; legacy OpenAI permission cannot authorize Gemini, and Gemini permission cannot authorize later OpenAI embedding requests. [Development evaluation](extraction-evaluation.md) records 25 real Gemini responses on typed fictional inputs.
 
 ### Gemini configuration and quotas
 

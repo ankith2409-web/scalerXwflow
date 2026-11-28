@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { hasAIConsent } from './account.mjs';
 const cache = new Map();
 const digest = value => createHash('sha256').update(value).digest('hex');
 export function cosine(a, b) {
@@ -12,7 +13,7 @@ export async function semanticScores(records, { key = '', model = process.env.OP
   const scores = new Map();
   if (!key) return scores;
   for (const [id, item] of cache) if (item.expires <= now) cache.delete(id);
-  const eligible = records.filter(r => r.matching && r.source?.aiAllowed === true).slice(0, 40);
+  const eligible = records.filter(r => r.matching && hasAIConsent(r.source?.aiAllowed, r.source?.aiProvider, 'openai')).slice(0, 40);
   const items = eligible.map(record => {
     const text = Object.entries(record.fields).map(([field, value]) => field + ': ' + (value ?? '')).join('\n');
     return { record, text, hash: digest(key + model + text) };

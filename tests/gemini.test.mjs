@@ -4,6 +4,8 @@ import {extractAccount,translateReview} from '../server/intelligence.mjs';
 import {createCloudHandler} from '../server/cloud.mjs';
 import {createAIBudget,AI_LIMITS} from '../server/ai-budget.mjs';
 import {aiConfig} from '../server/ai-config.mjs';
+import {hasAIConsent,readSource} from '../server/account.mjs';
+import {semanticScores} from '../server/matching.mjs';
 const reply=value=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(value)}]}}]});
 test('Gemini uses its own header and schema, validates excerpts, and never receives audio',async()=>{
   const input='I cut stone in Jodhpur before lockdown.';let called=0;
@@ -41,8 +43,18 @@ test('Gemini capability cannot enable OpenAI embeddings; declined AI consumes no
   let providerCalls=0,quota=0;const id='00000000-0000-0000-0000-000000000001';
   const handler=createCloudHandler({origin:'https://test.example',aiKey:'google-test',aiProvider:'gemini',aiGate:async()=>{quota++;},rpc:async action=>action==='session'?{active:true}:action==='intake_get'?{id}:Promise.reject(new Error('Unexpected RPC '+action)),fetcher:async()=>{providerCalls++;return reply({fields:{place:'Jodhpur',task:null,period:null,landmark:null,alias:null},language:'en'});}});
   const state=await(await handler(new Request('https://test.example/api/session'))).json();assert.equal(state.aiProvider,'gemini');assert.equal(state.analysisAvailable,true);assert.equal(state.embeddingsAvailable,false);
-  for(const allowAI of [false,true]){const r=await handler(new Request('https://test.example/api/intakes/'+id+'/extract',{method:'POST',headers:{origin:'https://test.example',cookie:'we_cloud_worker=worker','content-type':'application/json'},body:JSON.stringify({transcript:'Place: Jodhpur',allowAI})}));assert.equal(r.status,200);}
+  for(const consent of [{allowAI:false,aiProvider:'gemini'},{allowAI:true},{allowAI:true,aiProvider:'openai'},{allowAI:true,aiProvider:'gemini'}]){const r=await handler(new Request('https://test.example/api/intakes/'+id+'/extract',{method:'POST',headers:{origin:'https://test.example',cookie:'we_cloud_worker=worker','content-type':'application/json'},body:JSON.stringify({transcript:'Place: Jodhpur',...consent})}));assert.equal(r.status,200);assert.equal((await r.json()).method,consent.aiProvider==='gemini'&&consent.allowAI?'model':'rules');}
   assert.equal(providerCalls,1);assert.equal(quota,1);
+});
+test('Provider consent survives source storage and legacy permission cannot transfer to Gemini',()=>{
+  const source={text:'Fictional account',kind:'typed',aiAllowed:true,aiProvider:'gemini'};
+  assert.equal(readSource(source).aiProvider,'gemini');assert.equal(hasAIConsent(true,undefined,'gemini'),false);assert.equal(hasAIConsent(true,'openai','gemini'),false);assert.equal(hasAIConsent(true,'gemini','gemini'),true);assert.equal(hasAIConsent(true,undefined,'openai'),true);assert.equal(hasAIConsent(true,null,'openai'),false);
+  assert.throws(()=>readSource({...source,aiProvider:'unexpected'}),{status:400});
+});
+test('Gemini-only consent cannot authorize a later OpenAI embedding request',async()=>{
+  let called=0;const records=[1,2].map(i=>({id:String(i),worker:String(i),matching:true,fields:{place:'Fictional place'},source:{aiAllowed:true,aiProvider:'gemini'}}));
+  const scores=await semanticScores(records,{key:'openai-test-only',fetcher:async()=>{called++;throw new Error('must not call');}});
+  assert.equal(called,0);assert.equal(scores.size,0);
 });
 test('AI session, address, daily and lifetime caps remain bounded',async()=>{
   let now=1700000000000;const gate=createAIBudget({now:()=>now});

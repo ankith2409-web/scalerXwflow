@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, jsonPost, request } from '../voice';
-import { blankDraft, type Draft, type DraftData, type History, type Locale, type Page, type Session } from './types';
+import { allowsProvider, blankDraft, type Draft, type DraftData, type History, type Locale, type Page, type Session } from './types';
 import { messages } from './i18n';
 import {clearVault,type DeviceSnapshot,type DraftAttempt} from '../features/vault';
 import {featureCopy} from '../features/copy';
@@ -116,7 +116,7 @@ export function useWorkspace() {
     if(!navigator.onLine){const next={...latest.current,page:'review' as const};latest.current=next;setData(next);go('review');setNotice(featureCopy(next.language).offlineReady);return;}
     const id = await ensureIntake(); let next = { ...latest.current, page: 'review' as const };
     if (next.mode === 'story') {
-      const result = await request<{ fields: DraftData['fields']; evidence: DraftData['evidence']; method: 'model' | 'rules'; reason: string | null; language: string | null }>('/api/intakes/' + id + '/extract', jsonPost({ transcript: next.source.text, allowAI: next.source.aiAllowed }));
+      const result = await request<{ fields: DraftData['fields']; evidence: DraftData['evidence']; method: 'model' | 'rules'; reason: string | null; language: string | null }>('/api/intakes/' + id + '/extract', jsonPost({ transcript: next.source.text, allowAI: allowsProvider(next.source, session?.aiProvider), aiProvider: next.source.aiProvider }));
       next = { ...next, fields: result.fields, evidence: result.evidence, source: { ...next.source, analysis: result.method, language: result.language } };
       if (result.reason === 'model-unavailable') setNotice(t.aiFallback);
       if (result.reason === 'limit-reached') setNotice(aiCopy(next.language).limit);

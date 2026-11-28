@@ -42,17 +42,19 @@ try {
   for(const [initial,final] of [[true,false],[false,true]]){
     const call=client();
     const start=await call('/api/intakes','POST',{language:'kn',save:true,voice:false,matching:initial,outreach:initial});
-    const source={kind:'wispr-dictation',text:Object.values(fields).join('\n'),aiAllowed:false};
+    const source={kind:'wispr-dictation',text:Object.values(fields).join('\n'),aiAllowed:true,aiProvider:'gemini'};
     const data={language:'kn',mode:'story',page:'review',step:0,source,fields,evidence:fields,permissions:{matching:final,outreach:false}};
     const payload={version:0,operation:randomUUID(),data};const path='/api/intakes/'+start.data.id+'/draft';
     const draft=await call(path,'POST',payload);assert.equal(draft.status,200,JSON.stringify(draft));assert.equal(draft.data.version,1);
     assert.deepEqual((await call(path,'POST',payload)).data,draft.data);
     assert.equal((await call(path,'POST',{...payload,operation:randomUUID()})).status,409);
     assert.equal((await call('/api/draft')).data.data.language,'kn');
+    assert.equal((await call('/api/draft')).data.data.source.aiProvider,'gemini');
     assert.equal((await stranger(path,'DELETE')).status,404);
     const confirmed={fields,evidence:fields,source,permissions:{matching:final,outreach:false},confirmed:true,operation:randomUUID()};
     const saved=await call('/api/intakes/'+start.data.id+'/confirm','POST',confirmed);
     assert.equal(saved.status,200,JSON.stringify(saved));assert.equal(saved.data.permissions.matching,final);assert.equal(saved.data.source.text,source.text);
+    assert.equal(saved.data.source.aiProvider,'gemini');
     assert.equal((await call('/api/draft')).data,null);
     assert.equal((await call(path,'POST',{...payload,version:1,operation:randomUUID()})).status,409);
     assert.equal((await call('/api/intakes/'+start.data.id+'/confirm','POST',{...confirmed,permissions:{matching:!final,outreach:false}})).status,409);

@@ -3,7 +3,7 @@ import { compare, nextStates } from './staff-demo.mjs';
 import { extractAccount, translateReview } from './intelligence.mjs';
 import { captureFormat, transcribe } from './speech.mjs';
 import { RequestError } from './errors.mjs';
-import { readSource, readPermissions, readDraft, validateEvidence, interfaceLanguages } from './account.mjs';
+import { readSource, readPermissions, readDraft, validateEvidence, interfaceLanguages, hasAIConsent } from './account.mjs';
 import { semanticScores } from './matching.mjs';
 import { featureRequest, featureDownload } from './features.mjs';
 
@@ -211,12 +211,12 @@ export function createCloudHandler({ url, serviceKey, origin, speechKey = '', ai
       if (intake && uuid(intake[1]) && method==='POST') {
         const current=await rpc('intake_get',worker,{id:intake[1]});
         if(intake[2]==='extract') {
-          const {transcript,allowAI}=await json(request); if(allowAI===true&&aiKey&&aiProvider==='openai')await rpc('reserve',worker);
-          return respond(await extractAccount(transcript,{key:allowAI===true?aiKey:'',provider:aiProvider,model:aiModel,fetcher,beforeInference:aiGate?()=>aiGate({session:worker,ip:request.headers.get('x-workecho-client')||'global'}):undefined}));
+          const {transcript,allowAI,aiProvider:consentProvider}=await json(request), allowed=hasAIConsent(allowAI,consentProvider,aiProvider); if(allowed&&aiKey&&aiProvider==='openai')await rpc('reserve',worker);
+          return respond(await extractAccount(transcript,{key:allowed?aiKey:'',provider:aiProvider,model:aiModel,fetcher,beforeInference:aiGate?()=>aiGate({session:worker,ip:request.headers.get('x-workecho-client')||'global'}):undefined}));
         }
         if(intake[2]==='translate') {
-          const {fields,language,allowAI}=await json(request); if(allowAI===true&&aiKey&&aiProvider==='openai')await rpc('reserve',worker);
-          return respond(await translateReview(fields,language,{key:allowAI===true?aiKey:'',provider:aiProvider,model:aiModel,fetcher,beforeInference:aiGate?()=>aiGate({session:worker,ip:request.headers.get('x-workecho-client')||'global'}):undefined}));
+          const {fields,language,allowAI,aiProvider:consentProvider}=await json(request), allowed=hasAIConsent(allowAI,consentProvider,aiProvider); if(allowed&&aiKey&&aiProvider==='openai')await rpc('reserve',worker);
+          return respond(await translateReview(fields,language,{key:allowed?aiKey:'',provider:aiProvider,model:aiModel,fetcher,beforeInference:aiGate?()=>aiGate({session:worker,ip:request.headers.get('x-workecho-client')||'global'}):undefined}));
         }
         if(intake[2]==='turns') {
           if(!current.voice) throw new RequestError(403,'Voice processing was declined.');

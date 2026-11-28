@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { AudioLines, Plus, Folder, Users, Globe2, RotateCcw, Check, Lock, Info, Volume2, Download, ArrowRight, ArrowLeft, Mic } from 'lucide-react';
 import { request, jsonPost, usePlayback } from './voice';
 import { Dialog, Skeleton, Spinner } from './ui';
-import { fieldKeys, type Fields, type History, type Locale } from './workspace/types';
+import { allowsProvider, fieldKeys, type Fields, type History, type Locale } from './workspace/types';
 import { useWorkspace } from './workspace/useWorkspace';
 import { privacyCopy } from './workspace/privacy-copy';
 import {designCopy} from './workspace/design-copy';
@@ -128,7 +128,7 @@ function Workspace() {
             <label><input id="consent-save" type="checkbox" checked={w.consent} onChange={e => void w.savePermission(e.target.checked)}/>{t.consentSave}</label><p className="v2-muted">{t.consentSaveHelp}</p>
           </fieldset>
           {sharing()}
-          <details className="v2-ai-choice" open={Boolean(w.session?.analysisAvailable)}><summary>{c.optional}</summary><fieldset className="v2-consents" disabled={w.busy}><label><input id="consent-ai" type="checkbox" checked={d.source.aiAllowed} disabled={!w.session?.analysisAvailable} onChange={e => w.update({ source: { ...d.source, aiAllowed: e.target.checked } })}/>{a.consent.replace('{provider}',provider)}</label><p className="v2-muted">{w.session?.analysisAvailable ? t.consentAIHelp : t.aiUnavailable}</p></fieldset></details>
+          <details className="v2-ai-choice" open={Boolean(w.session?.analysisAvailable)}><summary>{c.optional}</summary><fieldset className="v2-consents" disabled={w.busy}><label><input id="consent-ai" type="checkbox" checked={allowsProvider(d.source,w.session?.aiProvider)} disabled={!w.session?.analysisAvailable} onChange={e => w.update({ source: { ...d.source, aiAllowed: e.target.checked, aiProvider: e.target.checked ? w.session?.aiProvider : null } })}/>{a.consent.replace('{provider}',provider)}</label><p className="v2-muted">{w.session?.analysisAvailable ? t.consentAIHelp : t.aiUnavailable}</p></fieldset></details>
           </aside></div>
           <div className="v2-bottom-action"><button className="v2-primary" disabled={w.busy || !canPrepare} onClick={() => void w.prepare()}>{w.busy ? <Spinner/> : <ArrowRight size={18}/>}{d.mode === 'guided' ? t.manualReview : t.prepare}</button>{draftStatus()}</div>
         </>}
@@ -137,7 +137,7 @@ function Workspace() {
             <section><h2>{t.source}</h2><blockquote>{d.source.text || t.noSource}</blockquote><p className="v2-muted">{t.originalLanguage}: {d.source.language ?? '—'}</p><span className="v2-method">{d.source.analysis === 'model' ? t.ai : t.basic}</span></section>
             <section><h2>{t.correction}</h2><p className="v2-muted">{valueCount}/5 {t.fieldsCount}. {t.uncertain}</p><fieldset disabled={w.busy} className="v2-fields">{fieldKeys.map((key, i) => <label key={key} htmlFor={'field-' + key}>{t.fields[i]}<input id={'field-' + key} maxLength={500} value={d.fields[key] ?? ''} placeholder={t.missing} onChange={e => w.update({ fields: { ...d.fields, [key]: e.target.value || null } })}/>{!d.fields[key] && <small>{t.questions[i]} {t.hints[i]}</small>}{d.evidence[key] && <small>{t.sourceQuote}: “{d.evidence[key]}”</small>}</label>)}</fieldset>
               <div className="v2-actions"><button className="v2-text" onClick={() => { if (voice.playing) voice.stop(); else voice.speak(fieldKeys.map((key, i) => t.fields[i] + ': ' + (d.fields[key] ?? t.missing)).join('. '), () => w.setNotice(t.noVoice)); }}><Volume2 size={17}/>{voice.playing ? t.stopRead : t.read}</button>
-              {d.source.aiAllowed && w.session?.analysisAvailable && !w.revision && <button className="v2-text" disabled={w.busy} onClick={() => void w.run(async () => { await w.flush(); const draft = await request<{ id: string }>('/api/draft'); const result = await request<{ available: boolean; fields: Fields }>('/api/intakes/' + draft.id + '/translate', jsonPost({ fields: d.fields, language: d.language, allowAI: true })); if (result.available) setTranslation(result.fields); else w.setNotice(t.translationFailed); })}>{t.translate}</button>}</div>
+              {allowsProvider(d.source,w.session?.aiProvider) && w.session?.analysisAvailable && !w.revision && <button className="v2-text" disabled={w.busy} onClick={() => void w.run(async () => { await w.flush(); const draft = await request<{ id: string }>('/api/draft'); const result = await request<{ available: boolean; fields: Fields }>('/api/intakes/' + draft.id + '/translate', jsonPost({ fields: d.fields, language: d.language, allowAI: true, aiProvider: d.source.aiProvider })); if (result.available) setTranslation(result.fields); else w.setNotice(t.translationFailed); })}>{t.translate}</button>}</div>
               {translation && <aside className="v2-translation"><h3>{t.translation}</h3><dl>{fieldKeys.map((key, i) => <div key={key}><dt>{t.fields[i]}</dt><dd>{translation[key] ?? t.missing}</dd></div>)}</dl></aside>}
             </section>
           </div>

@@ -166,7 +166,8 @@ try{
   assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth'),true);
   await fill('#people-search','Blue gate');await wait(`Array.from(document.querySelectorAll('.queue-item')).filter(e=>e.closest('.queue')).every(e=>e.textContent.includes('Tumakuru'))&&document.querySelectorAll('.queue-item').length>0`);assert.ok(await evaluate(`Boolean(document.querySelector('.comparison a[href^="https://www.openstreetmap.org/"]'))`));
   await click('Referrals');assert.ok(await evaluate(`location.search==='?demo=1'`));
-  const aiServer=createApp({dbPath:':memory:',workspace:true,speechKey:'',aiKey:'provider-double',aiProvider:'gemini',aiGate:async()=>{throw Object.assign(new Error('Quota reached'),{status:429});}});
+  let aiQuotaCalls=0;
+  const aiServer=createApp({dbPath:':memory:',workspace:true,speechKey:'',aiKey:'provider-double',aiProvider:'gemini',aiGate:async()=>{aiQuotaCalls++;throw Object.assign(new Error('Quota reached'),{status:429});}});
   aiServer.listen(0,'127.0.0.1');await once(aiServer,'listening');
   try{
     const aiOrigin='http://127.0.0.1:'+aiServer.address().port;
@@ -174,7 +175,11 @@ try{
     assert.ok(await evaluate(`document.querySelector('[data-testid="ai-status"]').textContent.includes('Google Gemini')`));
     assert.ok(await evaluate(`document.querySelector('#consent-ai').closest('label').textContent.includes('Google Gemini')`));
     assert.equal(await evaluate(`document.querySelector('#consent-ai').checked`),false,'AI consent is never preselected');
-    await fill('#work-account','I cut stone in Jodhpur before lockdown.');await evaluate(`document.querySelector('#consent-save').click();document.querySelector('#consent-ai').click()`);await wait(`document.querySelector('.v2-draft-status.saved')`);await click('Prepare my review');await wait(`document.querySelector('#field-place')`);
+    await fill('#work-account','I cut stone in Jodhpur before lockdown.');await evaluate(`document.querySelector('#consent-save').click();document.querySelector('#consent-ai').click()`);await wait(`document.querySelector('.v2-draft-status.saved')`);
+    assert.equal(await evaluate(`fetch('/api/draft').then(r=>r.json()).then(r=>r.data.source.aiProvider)`),'gemini','Provider-specific consent survives draft storage');
+    const legacyMethod=await evaluate(`(async()=>{const d=await fetch('/api/draft').then(r=>r.json());const r=await fetch('/api/intakes/'+d.id+'/extract',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({transcript:d.data.source.text,allowAI:true,aiProvider:'openai'})});return (await r.json()).method;})()`);
+    assert.equal(legacyMethod,'rules');assert.equal(aiQuotaCalls,0,'An old provider permission cannot reserve Gemini inference');
+    await click('Prepare my review');await wait(`document.querySelector('#field-place')`);assert.equal(aiQuotaCalls,1);
     assert.equal(await evaluate(`document.querySelector('#field-place').value`),'Jodhpur');assert.ok(await evaluate(`document.querySelector('.v2-message').textContent.includes('AI usage limit reached')`));assert.ok(await evaluate(`document.querySelector('.v2-method').textContent.includes('Suggested from your text')`));
   }finally{await send('Page.navigate',{url:'about:blank'});await new Promise(resolve=>aiServer.close(resolve));}
   assert.deepEqual(errors,[]);

@@ -17,7 +17,7 @@ Hosted AI is controlled by the runtime feature flags documented in architecture.
 
 ## Checks
 
-- `npm test`: 56 tests passed locally, covering workflows, consent, ownership, evidence, stale writes, recovery, referral transitions, embeddings, OAuth, private record deletion, password changes, hosted query routing, streamed MCP responses, keyless quota isolation, broader fictional fixtures and 17 synthetic matching checks.
+- `npm test`: 58 tests passed locally, covering workflows, provider-specific consent, ownership, evidence, stale writes, recovery, referral transitions, embeddings, OAuth, private record deletion, password changes, hosted query routing, streamed MCP responses, keyless quota isolation, broader fictional fixtures and 17 synthetic matching checks.
 - `npm run build`: TypeScript and Vite production build passed.
 - `npm run test:cloud`: production schema, HTTP handler and additive migration passed together on PGlite PostgreSQL 0.3.16. Includes staff roles, anonymous denial, drafts, final consent, source preservation, correction and referral cancellation.
 - `npm run test:browser`: real Chromium checks desktop/mobile flows and reports no uncaught browser exceptions. Requires PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH.

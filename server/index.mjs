@@ -8,7 +8,7 @@ import { isUuid, openStore, RequestError, SESSION_SECONDS } from './store.mjs';
 import { captureFormat, transcribe } from './speech.mjs';
 import { WORKSPACE_SECONDS } from './workspace-auth.mjs';
 import { extractAccount, translateReview } from './intelligence.mjs';
-import { interfaceLanguages } from './account.mjs';
+import { interfaceLanguages, hasAIConsent } from './account.mjs';
 import { featureRequest, featureDownload } from './features.mjs';
 import {aiConfig} from './ai-config.mjs';
 import {createAIBudget} from './ai-budget.mjs';
@@ -194,14 +194,14 @@ export function createRequestHandler(db, {
         if (method === 'POST' && isUuid(id)) {
           if (action === 'extract') {
             db.intake(session, id);
-            const { transcript, allowAI } = await json(req);
+            const { transcript, allowAI, aiProvider: consentProvider } = await json(req);
             if(aiProvider!=='gemini')db.reserveAnalysis(session, id);
-            return send(res, 200, await extractAccount(transcript, { key: allowAI === true ? aiKey : '',provider:aiProvider,model:aiModel,fetcher:aiFetcher,beforeInference:()=>aiGate({session:session.id,ip:aiIp||req.socket?.remoteAddress||'global'}) }));
+            return send(res, 200, await extractAccount(transcript, { key: hasAIConsent(allowAI,consentProvider,aiProvider) ? aiKey : '',provider:aiProvider,model:aiModel,fetcher:aiFetcher,beforeInference:()=>aiGate({session:session.id,ip:aiIp||req.socket?.remoteAddress||'global'}) }));
           }
           if (action === 'translate') {
             db.intake(session, id); if(aiProvider!=='gemini')db.reserveAnalysis(session, id);
-            const { fields, language, allowAI } = await json(req);
-            return send(res, 200, await translateReview(fields, language, { key: allowAI === true ? aiKey : '',provider:aiProvider,model:aiModel,fetcher:aiFetcher,beforeInference:()=>aiGate({session:session.id,ip:aiIp||req.socket?.remoteAddress||'global'}) }));
+            const { fields, language, allowAI, aiProvider: consentProvider } = await json(req);
+            return send(res, 200, await translateReview(fields, language, { key: hasAIConsent(allowAI,consentProvider,aiProvider) ? aiKey : '',provider:aiProvider,model:aiModel,fetcher:aiFetcher,beforeInference:()=>aiGate({session:session.id,ip:aiIp||req.socket?.remoteAddress||'global'}) }));
           }
           if (action === 'confirm') return send(res, 200, db.confirm(session, id, await json(req)));
           if (action === 'turns') {
