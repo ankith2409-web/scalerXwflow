@@ -34,11 +34,26 @@ try{
   const click=async(text)=>{await wait(`Array.from(document.querySelectorAll('button,a,label')).some(e=>e.getClientRects().length&&e.textContent.trim()===${JSON.stringify(text)})`);return evaluate(`Array.from(document.querySelectorAll('button,a,label')).find(e=>e.getClientRects().length&&e.textContent.trim()===${JSON.stringify(text)}).click()`);};
   const fill=async(selector,text)=>{await wait(`document.querySelector(${JSON.stringify(selector)})`);await evaluate(`document.querySelector(${JSON.stringify(selector)}).focus()`);await send('Input.insertText',{text});};
   const api=async(path)=>evaluate(`fetch(${JSON.stringify(path)}).then(r=>r.json())`);
+  const checkWidths=async(label)=>{
+    for(const width of [360,390,768,1024,1440]){
+      await send('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<700});
+      await pause(60);
+      const overflow=await evaluate(`document.documentElement.scrollWidth>window.innerWidth`);
+      assert.equal(overflow,false,`${label} fits ${width}px without horizontal scrolling`);
+    }
+  };
   await send('Runtime.enable');await send('Page.enable');
   await send('ServiceWorker.enable');
   await send('Network.enable');await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   await send('Page.navigate',{url:origin});await wait(`document.querySelector('#work-account')`);
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+  await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+  assert.equal(await evaluate(`document.activeElement.className`),'skip-link');
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await wait(`document.activeElement.id==='worker-main'`);
+  await checkWidths('Worker capture');
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await pause(400);
   const desktopShot=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});await writeFile(resolve('.qa-desktop.png'),Buffer.from(desktopShot.data,'base64'));
@@ -46,6 +61,8 @@ try{
   for(const language of ['hi','kn','en']){
     await evaluate(`{ const s=document.querySelector('select');s.value=${JSON.stringify(language)};s.dispatchEvent(new Event('change',{bubbles:true})); }`);
     await wait(`document.documentElement.lang===${JSON.stringify(language)}`);
+    await checkWidths(`Worker capture (${language})`);
+    await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   }
   await click('Use Wispr Flow');await wait(`document.querySelector('dialog[open]')`);await evaluate(`document.querySelector('dialog .v2-primary').click()`);
   await wait(`document.activeElement.id==='work-account'`);
@@ -84,6 +101,8 @@ try{
   await evaluate(`document.querySelector('#consent-save').click()`);await wait(`document.querySelector('.v2-draft-status.saved')`);
   await click('Prepare my review');
   await wait(`document.querySelector('.v2-review input')?.value==='Jodhpur'`);
+  await checkWidths('Worker review');
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   assert.equal(await evaluate(`document.querySelector('#field-period').value`),'two monsoons before lockdown');
   assert.equal(await evaluate(`Array.from(document.querySelectorAll('.v2-review input')).filter(e=>e.value).length`),5);
   assert.equal(await evaluate('document.documentElement.scrollWidth'),390);
@@ -92,6 +111,8 @@ try{
   await click('Back to my story');await wait(`document.querySelector('#allow-matching')`);await evaluate(`document.querySelector('#allow-matching').click()`);
   await click('Prepare my review');await wait(`document.querySelector('#field-place')`);await click('Confirm and save this job');
   await wait(`document.querySelector('.v2-records h2')?.textContent==='Jodhpur'`);
+  await checkWidths('Saved history');
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
   let rows=await api('/api/history');assert.equal(rows[0].permissions.matching,false);assert.equal(rows[0].source.text,story);
   assert.equal(await evaluate(`document.querySelector('.feature-device').textContent.includes('Device draft enabled')`),false);
   await wait(`document.querySelector('.feature-extras')`);await evaluate(`document.querySelector('.feature-extras').open=true`);await wait(`document.querySelector('.feature-extras select')`);await evaluate(`{const s=document.querySelector('.feature-extras select');s.value='approximate';s.dispatchEvent(new Event('change',{bubbles:true}));}`);await fill('input[id$="start"]','2009');await fill('input[id$="end"]','2011');await click('Save details');await wait(`fetch('/api/features/timeline').then(r=>r.json()).then(rows=>rows.some(x=>x.kind==='details'&&x.data.startYear===2009))`);
@@ -116,6 +137,12 @@ try{
   await evaluate(`document.querySelector('details.staff-entry').open=true`);await fill('#current-password','browser testing passphrase');await fill('#replacement-password','replacement browser passphrase');await click('Change password');await wait(`document.querySelector('.status-note')?.textContent.includes('Password changed')`);
   await send('Page.navigate',{url:origin+'/staff/review?demo=1'});await wait(`Array.from(document.querySelectorAll('button')).some(e=>e.textContent.includes('Enter as demo staff'))`);await click('Enter as demo staff');
   await wait(`document.querySelector('.comparison')`);assert.ok((await api('/api/demo/staff/matches')).length>0);assert.equal((await api('/api/session')).active,true);
+  await checkWidths('Staff comparisons');
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+  await evaluate(`document.querySelectorAll('.queue-item')[1].click()`);
+  await wait(`document.activeElement===document.querySelector('.comparison h2')`);
+  assert.ok(await evaluate(`{const r=document.querySelector('.comparison h2').getBoundingClientRect();r.top>=0&&r.bottom<=innerHeight}`),'Selecting a mobile comparison brings its heading into view');
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await evaluate(`(async()=>{const post=(path,data)=>fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json());const job=await post('/api/demo/intakes',{language:'en',save:true,voice:false,matching:true,outreach:true});const fields={place:'Fictional browser yard',task:'Synthetic test work',period:null,landmark:null,alias:null};await post('/api/demo/intakes/'+job.id+'/confirm',{confirmed:true,operation:crypto.randomUUID(),fields,evidence:fields});})()`);
   await send('Page.reload');await wait(`document.querySelector('.shared-records .feature-record-staff')`);await evaluate(`document.querySelector('.feature-staff').open=true`);await click('Add workplace');await wait(`document.querySelector('#workplace-name')`);await fill('#workplace-name','Fictional browser workplace');await fill('#workplace-locality','Synthetic locality, Karnataka');await evaluate(`{const s=document.querySelector('#workplace-status');s.value='reviewed';s.dispatchEvent(new Event('change',{bubbles:true}));}`);await fill('#workplace-reason','Fictional browser test address check.');await click('Save workplace');await wait(`!document.querySelector('dialog[open]')&&document.querySelector('.feature-directory h3')?.textContent==='Fictional browser workplace'`);
   await evaluate(`document.querySelector('.shared-records .feature-record-staff').open=true`);await wait(`document.querySelector('input[id^="directory-query-"]')`);await fill('input[id^="directory-query-"]','Fictional browser');await click('Find workplace');await wait(`document.querySelector('select[id^="workplace-choice-"]')?.options.length>1`);await evaluate(`{const s=document.querySelector('select[id^="workplace-choice-"]');s.value=s.options[1].value;s.dispatchEvent(new Event('change',{bubbles:true}));}`);await fill('textarea[id^="link-reason-"]','Fictional account and locality manually checked.');await click('Save workplace decision');await wait(`document.querySelector('.feature-record-staff').textContent.includes('Current: Fictional browser workplace')`);await fill('textarea[id^="case-action-"]','Synthetic follow-up only; do not contact anyone.');await click('Save case');await wait(`fetch('/api/demo/features/cases').then(r=>r.json()).then(r=>r.total===1)`);await click('Case management');await wait(`document.querySelector('.feature-case-list h3')?.textContent==='Fictional browser yard'`);
@@ -123,7 +150,7 @@ try{
   await fill('#people-search','Blue gate');await wait(`Array.from(document.querySelectorAll('.queue-item')).filter(e=>e.closest('.queue')).every(e=>e.textContent.includes('Tumakuru'))&&document.querySelectorAll('.queue-item').length>0`);assert.ok(await evaluate(`Boolean(document.querySelector('.comparison a[href^="https://www.openstreetmap.org/"]'))`));
   await click('Referrals');assert.ok(await evaluate(`location.search==='?demo=1'`));
   assert.deepEqual(errors,[]);
-  console.log('Chromium passed: languages, Flow readiness, private QR round trip, lost-response retry without duplicate saves, encrypted offline reload/unlock/reconnect, timeline dates, private attachment upload, printable PDF, source-preserving correction, recovery, workplace directory/link, case assignment, responsive layout and no browser exceptions.'+(skipOfflineReload?' Offline reload was explicitly skipped in this environment.':''));
+  console.log('Chromium passed: languages, keyboard skip navigation, five responsive widths across capture/review/history/staff, mobile comparison focus, Flow readiness, private QR round trip, lost-response retry without duplicate saves, encrypted offline reload/unlock/reconnect, timeline dates, private attachment upload, printable PDF, source-preserving correction, recovery, workplace directory/link, case assignment and no browser exceptions.'+(skipOfflineReload?' Offline reload was explicitly skipped in this environment.':''));
   console.log('Screenshot:',screenshotPath);
 }finally{
   socket?.close();chrome.kill();await new Promise(resolve=>server.close(resolve));await pause(500);

@@ -130,8 +130,9 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
   });
 
   return <div className="site staff-site" lang="en">
+    <a className="skip-link" href="#staff-main">Skip to main content</a>
     <header className="header"><div className="header-inner staff-head">
-      <Brand onHome={demoSuffix ? () => location.assign('/' + demoSuffix) : undefined}/>
+      <Brand onHome={demoSuffix ? () => location.assign('/' + demoSuffix) : undefined}/><span className="staff-app-label">Staff workspace</span>
       <a className="quiet" href={'/' + demoSuffix}><ArrowLeft size={18} aria-hidden="true" />Worker view</a>
     </div></header>
     <div className="staff-shell">
@@ -144,8 +145,8 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
           await request('/api/staff/session', { method: 'DELETE' }); setActive(false); setMatches([]); setReferrals([]); setRecords([]);
         })}><LogOut size={16} aria-hidden="true" />Exit staff workspace</button>
         {!workspace && <button className="quiet" disabled={busy} onClick={() => setResetOpen(true)}><RotateCcw size={16} aria-hidden="true" />Reset demo</button>}
-      </div>}</aside>
-      <main className="staff-main" aria-busy={busy}>
+      </div>}<p className="staff-attribution">Wispr Flow × Scaler</p></aside>
+      <main className="staff-main" id="staff-main" tabIndex={-1} aria-busy={busy}>
         <div key={title} className="motion-page">
         <div className="staff-title"><h1 ref={heading} tabIndex={-1}>{title}</h1>
           {active !== null && <p className="demo-note"><Info size={17} aria-hidden="true" />{cloud ? 'Shared workspace. Log outreach performed outside WorkEcho.' : workspace ? 'Local workspace. Log outreach performed outside WorkEcho.' : 'Fictional records. All outreach is simulated.'}</p>}
@@ -187,7 +188,6 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
           <button className="primary" disabled={busy} onClick={() => void run(async () => {
             await request('/api/staff/session', { method: 'POST' }); await refresh();
           })}>Enter as demo staff {busy ? <Spinner /> : <ArrowRight size={18} aria-hidden="true" />}</button></div>}
-        {active&&!referralsPage&&<Suspense fallback={<Skeleton label="Loading workplace and case tools" kind="form"/>}><StaffFeatures/></Suspense>}
         {active && !referralsPage && <div className="staff-summary" aria-label="Workspace totals">
           <div><span className="surface-icon"><Files size={19} aria-hidden="true" /></span><span>Shared histories</span><strong>{records.length}</strong></div>
           <div><span className="surface-icon"><GitCompare size={19} aria-hidden="true" /></span><span>Awaiting review</span><strong>{matches.filter(({ status }) => status === 'waiting').length}</strong></div>
@@ -201,7 +201,7 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
             <select id="review-filter" value={filter} onChange={(event) => setFilter(event.target.value)}>
               <option value="all">All candidates</option><option value="waiting">Needs review</option><option value="unresolved">Unresolved</option><option value="reviewed">Reviewed</option>
             </select>
-            {queue.length ? queue.map((item) => <button className="queue-item" type="button" key={item.id} aria-pressed={item.id === current?.id} onClick={() => setSelection(item.id)}>
+            {queue.length ? queue.map((item) => <button className="queue-item" type="button" key={item.id} aria-pressed={item.id === current?.id} onClick={() => {setSelection(item.id);if(matchMedia('(max-width: 920px)').matches)requestAnimationFrame(()=>{const panel=document.querySelector<HTMLElement>('.comparison');panel?.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});panel?.querySelector<HTMLElement>('h2')?.focus({preventScroll:true});});}}>
               <span>{item.left.label} / {item.right.label}</span>
               <small><MapPin size={13} aria-hidden="true" />{item.right.fields.place}</small>
               <span className={item.conflict ? 'tag conflict' : 'tag'}>{item.conflict ? 'Conflicting locations' : states[item.status]}</span>
@@ -210,7 +210,7 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
             </button>) : <div className="queue-empty"><GitCompare size={22} aria-hidden="true" /><p>No candidates in this view.</p></div>}
           </section>
           {current && <section className="paper comparison" aria-labelledby="compare-title">
-            <div className="panel-heading"><h2 id="compare-title">{current.conflict ? 'Conflicting workplace details' : 'Possible shared workplace'}</h2><span className="tag">{states[current.status]}</span></div>
+            <div className="panel-heading"><h2 id="compare-title" tabIndex={-1}>{current.conflict ? 'Conflicting workplace details' : 'Possible shared workplace'}</h2><span className="tag">{states[current.status]}</span></div>
             <div className="evidence-cards motion-detail" key={current.id}><AccountCard item={current.left} /><AccountCard item={current.right} /></div>
             <div className="evidence-note"><h3>Evidence</h3><p>{current.clues.join(' · ')}</p>
               {current.semanticSimilarity !== undefined && <p>Model ranking score: {current.semanticSimilarity.toFixed(3)}. This is text similarity, not a probability of a shared workplace.</p>}
@@ -227,6 +227,7 @@ export function StaffWorkspace({ referralsPage: initialReferralsPage }: { referr
               : <p className="notice">Outreach was declined for this interview.</p>)}
           </section>}
         </div>}
+        {active&&!referralsPage&&<Suspense fallback={<Skeleton label="Loading workplace and case tools" kind="form"/>}><StaffFeatures/></Suspense>}
         {active && !referralsPage && <section className="paper shared-records">
           <h2>Shared work histories</h2>
           <form className="staff-search" onSubmit={event=>{event.preventDefault();void run(()=>load(true,0,query));}}><label className="field-label" htmlFor="staff-search">Search all shared histories by place, task, time, landmark or name</label><div className="action-row"><input id="staff-search" className="line-input" maxLength={100} value={query} onChange={e=>setQuery(e.target.value)} placeholder="For example: Jodhpur"/><button className="quiet" disabled={busy}>Search</button></div></form>
