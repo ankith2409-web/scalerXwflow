@@ -3,6 +3,8 @@ import { Readable } from 'node:stream';
 import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { createRequestHandler } from '../server/index.mjs';
 import { openStore, SESSION_SECONDS } from '../server/store.mjs';
+import {aiConfig} from '../server/ai-config.mjs';
+import {createNeonAIBudget} from '../server/ai-budget.mjs';
 
 const prefix = '__Host-workecho-demo-';
 const chunkSize = 3400;
@@ -129,7 +131,10 @@ export function createVercelHandler({sandboxRpc:injectedSandboxRpc}={}){return {
       const headers = new Headers();
       let status = 500;
       let body;
-      await createRequestHandler(db, { appOrigin: url.origin, secureCookies: true, speechKey: '', aiKey: '', workspace: false })(input, {
+      const configured=aiConfig(process.env,{demo:true});
+      const demoAI=Boolean(process.env.DATABASE_URL&&configured.key);
+      await createRequestHandler(db, { appOrigin: url.origin, secureCookies: true, speechKey: '', aiKey: demoAI?configured.key:'',aiProvider:configured.provider,aiModel:configured.model,
+        ...(demoAI?{aiGate:await createNeonAIBudget(),aiIp:request.headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim()||'global'}:{}),workspace: false })(input, {
         appendHeader: (name, value) => headers.append(name, value),
         setHeader: (name, value) => headers.set(name, value),
         writeHead(code, options) {

@@ -4,6 +4,7 @@ import { blankDraft, type Draft, type DraftData, type History, type Locale, type
 import { messages } from './i18n';
 import {clearVault,type DeviceSnapshot,type DraftAttempt} from '../features/vault';
 import {featureCopy} from '../features/copy';
+import {aiCopy} from './ai-copy';
 
 export function useWorkspace() {
   const initialLanguage = (): Locale => { try { const v = localStorage.getItem('workecho-language'); return v === 'hi' || v === 'kn' ? v : 'en'; } catch { return 'en'; } };
@@ -118,6 +119,7 @@ export function useWorkspace() {
       const result = await request<{ fields: DraftData['fields']; evidence: DraftData['evidence']; method: 'model' | 'rules'; reason: string | null; language: string | null }>('/api/intakes/' + id + '/extract', jsonPost({ transcript: next.source.text, allowAI: next.source.aiAllowed }));
       next = { ...next, fields: result.fields, evidence: result.evidence, source: { ...next.source, analysis: result.method, language: result.language } };
       if (result.reason === 'model-unavailable') setNotice(t.aiFallback);
+      if (result.reason === 'limit-reached') setNotice(aiCopy(next.language).limit);
     }
     latest.current = next; setData(next); await flush(next); go('review');
   }); }

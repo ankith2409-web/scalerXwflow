@@ -8,6 +8,6 @@ export type Source = { kind: 'typed' | 'wispr-dictation' | 'wispr-notetaker' | '
 export type DraftData = { language: Locale; page: 'capture' | 'review'; mode: 'story' | 'guided'; step: number; source: Source; fields: Fields; evidence: Fields; permissions: Permissions };
 export type Draft = { id: string; version: number; updatedAt: string; data: DraftData };
 export type History = { id: string; version: number; fields: Fields; evidence: Fields; source: Source | null; permissions: Permissions; sharing: boolean; confirmedAt: string };
-export type Session = { active: boolean; workerId?:string|null; workspace: boolean; cloud?: boolean; demo?: boolean; analysisAvailable?: boolean; embeddingsAvailable?: boolean };
+export type Session = { active: boolean; workerId?:string|null; workspace: boolean; cloud?: boolean; demo?: boolean; analysisAvailable?: boolean; embeddingsAvailable?: boolean; aiProvider?:'gemini'|'openai'|null };
 export type Page = 'capture' | 'review' | 'history' | 'saved' | 'restore';
 export const blankDraft = (language: Locale): DraftData => ({ language, page: 'capture', mode: 'story', step: 0, source: { kind: 'typed', text: '', meetingId: null, analysis: 'manual', language: null, aiAllowed: false }, fields: emptyFields(), evidence: emptyFields(), permissions: { matching: false, outreach: false } });

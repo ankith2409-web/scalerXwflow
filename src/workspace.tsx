@@ -7,6 +7,7 @@ import { fieldKeys, type Fields, type History, type Locale } from './workspace/t
 import { useWorkspace } from './workspace/useWorkspace';
 import { privacyCopy } from './workspace/privacy-copy';
 import {designCopy} from './workspace/design-copy';
+import {aiCopy} from './workspace/ai-copy';
 import {PrintHost,showPrint} from './features/print';
 import {featureCopy} from './features/copy';
 import {DeviceDraft} from './features/DeviceDraft';
@@ -25,6 +26,7 @@ function download(name: string, text: string) {
 }
 function Workspace() {
   const w = useWorkspace(), { data: d, t } = w,c=designCopy(d.language);
+  const a=aiCopy(d.language),provider=w.session?.aiProvider==='gemini'?'Google Gemini':w.session?.aiProvider==='openai'?'OpenAI':'AI';
   const [dialog, setDialog] = useState<'flow' | 'discard' | 'switch' | null>(null), [kept, setKept] = useState(false);
   const [notetaker, setNotetaker] = useState(false), [recovery, setRecovery] = useState('');
   const [translation, setTranslation] = useState<Fields | null>(null);
@@ -90,7 +92,7 @@ function Workspace() {
         {w.session?.active && <button className="v2-text v2-mobile-session" onClick={() => { setKept(false); setDialog('switch'); }}>{t.anotherWorker}</button>}
       </div></header>
       <div className="v2-content">
-        {demo && <p className="v2-demo-banner" role="status"><Info size={18}/>{t.demoNotice}</p>}
+        {demo && <p className="v2-demo-banner" role="status"><Info size={18}/>{a.demo}</p>}
         <h1 ref={heading} tabIndex={-1}>{headings[w.page]}</h1>
         <p className="v2-intro">{w.page === 'capture' ? t.intro : w.page === 'review' ? t.uncertain : w.page === 'saved' ? t.savedHelp : w.page === 'restore' ? t.recoveryHelp : t.finalHelp}</p>
         {['capture', 'review', 'saved'].includes(w.page) && <ol className="v2-steps" aria-label={t.review}>{[t.stepCapture, t.stepReview, t.stepSave].map((label, i) => <li key={label} className={i <= stage ? 'active' : ''} aria-current={i === stage ? 'step' : undefined}><span>{i < stage ? <Check size={15}/> : i + 1}</span>{label}</li>)}</ol>}
@@ -100,6 +102,7 @@ function Workspace() {
           <div className="v2-capture-layout">
           <section className="v2-capture-panel" aria-busy={w.busy}>
             <div className="v2-section-title"><h2>{t.capture}</h2><button className="v2-outline" onClick={() => setDialog('flow')}><Mic size={17}/>{t.flow}</button></div>
+            <p className="v2-ai-status" data-testid="ai-status">{w.session?.analysisAvailable?<><span className="v2-status-dot"/>{a.available} · {provider}</>:a.basic}</p>
             <div className="v2-tabs" role="group" aria-label={t.capture}>
               <button disabled={w.busy} aria-pressed={d.mode === 'story' && !notetaker} onClick={() => void switchMode('story')}>{t.story}</button>
               <button disabled={w.busy} aria-pressed={d.mode === 'guided' && !notetaker} onClick={() => void switchMode('guided')}>{t.guided}</button>
@@ -125,7 +128,7 @@ function Workspace() {
             <label><input id="consent-save" type="checkbox" checked={w.consent} onChange={e => void w.savePermission(e.target.checked)}/>{t.consentSave}</label><p className="v2-muted">{t.consentSaveHelp}</p>
           </fieldset>
           {sharing()}
-          <details className="v2-ai-choice"><summary>{c.optional}</summary><fieldset className="v2-consents" disabled={w.busy}><label><input id="consent-ai" type="checkbox" checked={d.source.aiAllowed} disabled={!w.session?.analysisAvailable || demo} onChange={e => w.update({ source: { ...d.source, aiAllowed: e.target.checked } })}/>{t.consentAI}</label><p className="v2-muted">{w.session?.analysisAvailable ? t.consentAIHelp : t.aiUnavailable}</p></fieldset></details>
+          <details className="v2-ai-choice" open={Boolean(w.session?.analysisAvailable)}><summary>{c.optional}</summary><fieldset className="v2-consents" disabled={w.busy}><label><input id="consent-ai" type="checkbox" checked={d.source.aiAllowed} disabled={!w.session?.analysisAvailable} onChange={e => w.update({ source: { ...d.source, aiAllowed: e.target.checked } })}/>{a.consent.replace('{provider}',provider)}</label><p className="v2-muted">{w.session?.analysisAvailable ? t.consentAIHelp : t.aiUnavailable}</p></fieldset></details>
           </aside></div>
           <div className="v2-bottom-action"><button className="v2-primary" disabled={w.busy || !canPrepare} onClick={() => void w.prepare()}>{w.busy ? <Spinner/> : <ArrowRight size={18}/>}{d.mode === 'guided' ? t.manualReview : t.prepare}</button>{draftStatus()}</div>
         </>}

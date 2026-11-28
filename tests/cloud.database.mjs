@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { createCloudHandler } from '../server/cloud.mjs';
 import {featureContract} from './features-contract.mjs';
+import {createAIBudget} from '../server/ai-budget.mjs';
 const root=process.env.PGLITE_ROOT;
 if(!root) throw new Error('Set PGLITE_ROOT to the @electric-sql/pglite installation directory.');
 const {PGlite}=await import(pathToFileURL(root+'/dist/index.js').href);
@@ -134,5 +135,17 @@ try {
   await assert.rejects(()=>sandbox('write','conflicting fixture'),/409/);
   for(const role of ['anon','authenticated']){await db.exec('set role '+role);await assert.rejects(()=>db.query('select public.we_feature_api($1,$2)', ['','{}']),/permission denied/);await assert.rejects(()=>db.query('select * from public.we_feature_items'),/permission denied/);await assert.rejects(()=>db.query('select * from public.we_sandboxes'),/permission denied/);await db.exec('reset role');}
   console.log('PostgreSQL checks passed: separate clients, privacy, bootstrap login, matching, referral approval, withdrawal, recovery, revision conflicts, and denied anonymous database access.');
+  const query=(sql,args)=>db.query(sql,args),stamp=Date.now();
+  const makeGate=()=>createAIBudget({query,now:()=>stamp});
+  const firstGate=makeGate();for(let i=0;i<10;i++)await firstGate({session:'quota-worker',ip:'quota-address'});
+  // A new application instance shares the same counters. Existing RPC cleanup must preserve them.
+  await db.query('select public.we_api($1,$2,$3)', ['session','','{}']);
+  await assert.rejects(makeGate()({session:'quota-worker',ip:'quota-address'}),{status:429});
+  const attempts=await Promise.allSettled(Array.from({length:50},(_,i)=>makeGate()({session:'parallel-'+i,ip:'parallel-'+i})));
+  assert.ok(attempts.filter(x=>x.status==='fulfilled').length<=39,'Global durable daily quota stays bounded under concurrent callers');
+  const counters=(await db.query("select key,uses from public.we_limits where key like 'daily:workecho-ai:%'" )).rows;
+  assert.ok(counters.find(x=>x.key==='daily:workecho-ai:project').uses<=50);
+  assert.ok(counters.find(x=>x.key==='daily:workecho-ai:total').uses<=200);
+  console.log('Durable AI quota passed: shared across instances, preserved by RPC cleanup, session and concurrent global limits, no schema migration.');
 } catch(error) { console.error('PostgreSQL verification failed:',error.message,error.detail??'',error.where??'',error.position??'',error.internalQuery??''); if(error.query && error.position)console.error(error.query.slice(Math.max(0,Number(error.position)-120),Number(error.position)+120)); process.exitCode=1; }
 finally {await db.close();}

@@ -97,6 +97,8 @@ fieldset{min-width:0}small,.muted,.v2-muted{color:var(--muted);font-size:13px;li
 .v2-choice-panel>.v2-consents+.v2-consents legend{position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden;white-space:nowrap}
 .v2-choice-panel>.v2-consents+.v2-consents>p{margin-left:0}.v2-choice-panel>.v2-consents+.v2-consents label{padding-bottom:14px}
 .v2-ai-choice{border-top:1px solid var(--line);padding-top:8px;font-size:14px;color:var(--muted)}
+.v2-ai-status{display:flex;gap:7px;align-items:center;margin:-8px 0 16px;font-size:12px;color:var(--muted)}
+.v2-status-dot{width:7px;height:7px;border-radius:50%;background:#376a4a;flex:none}
 .v2-ai-choice summary{font-weight:600;color:var(--ink)}.v2-ai-choice .v2-consents{margin-top:10px}
 .v2-bottom-action{position:sticky;bottom:0;z-index:4;display:flex;align-items:center;gap:20px;flex-wrap:wrap;background:var(--canvas);border-top:1px solid var(--line);padding:16px 0;margin-top:18px;box-shadow:0 -12px 18px var(--canvas)}
 .v2-bottom-action>.v2-primary{min-height:48px;padding:12px 20px}

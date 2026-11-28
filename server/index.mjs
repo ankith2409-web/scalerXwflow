@@ -10,6 +10,8 @@ import { WORKSPACE_SECONDS } from './workspace-auth.mjs';
 import { extractAccount, translateReview } from './intelligence.mjs';
 import { interfaceLanguages } from './account.mjs';
 import { featureRequest, featureDownload } from './features.mjs';
+import {aiConfig} from './ai-config.mjs';
+import {createAIBudget} from './ai-budget.mjs';
 
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const audioTypes = new Set(['audio/webm', 'audio/ogg', 'audio/mp4']);
@@ -56,7 +58,8 @@ async function json(req, limit = 65_536) {
 
 export function createRequestHandler(db, {
   speechKey = process.env.SARVAM_API_KEY?.trim(),
-  speech = transcribe, appOrigin = process.env.APP_ORIGIN, secureCookies = process.env.SECURE_COOKIES === '1', workspace = false, aiKey = process.env.WORKECHO_AI_ENABLED === '1' ? process.env.OPENAI_API_KEY ?? '' : '',
+  speech = transcribe, appOrigin = process.env.APP_ORIGIN, secureCookies = process.env.SECURE_COOKIES === '1', workspace = false, aiKey = aiConfig().key,
+  aiProvider=aiConfig().provider,aiModel=aiConfig().model,aiGate=createAIBudget(),aiIp,aiFetcher=fetch,
 } = {}) {
   const cookie = (res, value, maxAge, name = 'we_session') => res.appendHeader('Set-Cookie',
     name + '=' + value + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + maxAge + (secureCookies ? '; Secure' : ''));
@@ -85,14 +88,14 @@ export function createRequestHandler(db, {
         const session = db.getSession(readCookie(workerCookie));
 
         if (path === '/api/session' && method === 'GET') {
-          return send(res, 200, { active: Boolean(session), workerId: session?.id ?? null, voiceAvailable: Boolean(speechKey), analysisAvailable: Boolean(aiKey), workspace, demo: !workspace });
+          return send(res, 200, { active: Boolean(session), workerId: session?.id ?? null, voiceAvailable: Boolean(speechKey), analysisAvailable: Boolean(aiKey),aiProvider:aiKey?aiProvider:null, workspace, demo: !workspace });
         }
         if (workspace && path === '/api/session/restore' && method === 'POST') {
           const { code } = await json(req);
           const value = db.workspace.resume(code);
           if (session && db.getSession(value)?.id !== session.id) db.signOut(session);
           cookie(res, value, WORKSPACE_SECONDS, workerCookie);
-          return send(res, 200, { active: true, workerId:db.getSession(value).id, voiceAvailable: Boolean(speechKey), analysisAvailable: Boolean(aiKey), workspace });
+          return send(res, 200, { active: true, workerId:db.getSession(value).id, voiceAvailable: Boolean(speechKey), analysisAvailable: Boolean(aiKey), aiProvider:aiKey?aiProvider:null, workspace });
         }
         if (workspace && path === '/api/session/recovery-code' && method === 'POST') {
           if (!session) throw new RequestError(401, 'Open your work history first.');
@@ -191,14 +194,14 @@ export function createRequestHandler(db, {
         if (method === 'POST' && isUuid(id)) {
           if (action === 'extract') {
             db.intake(session, id);
-            db.reserveAnalysis(session, id);
             const { transcript, allowAI } = await json(req);
-            return send(res, 200, await extractAccount(transcript, { key: allowAI === true ? aiKey : '' }));
+            if(aiProvider!=='gemini')db.reserveAnalysis(session, id);
+            return send(res, 200, await extractAccount(transcript, { key: allowAI === true ? aiKey : '',provider:aiProvider,model:aiModel,fetcher:aiFetcher,beforeInference:()=>aiGate({session:session.id,ip:aiIp||req.socket?.remoteAddress||'global'}) }));
           }
           if (action === 'translate') {
-            db.intake(session, id); db.reserveAnalysis(session, id);
+            db.intake(session, id); if(aiProvider!=='gemini')db.reserveAnalysis(session, id);
             const { fields, language, allowAI } = await json(req);
-            return send(res, 200, await translateReview(fields, language, { key: allowAI === true ? aiKey : '' }));
+            return send(res, 200, await translateReview(fields, language, { key: allowAI === true ? aiKey : '',provider:aiProvider,model:aiModel,fetcher:aiFetcher,beforeInference:()=>aiGate({session:session.id,ip:aiIp||req.socket?.remoteAddress||'global'}) }));
           }
           if (action === 'confirm') return send(res, 200, db.confirm(session, id, await json(req)));
           if (action === 'turns') {
