@@ -53,7 +53,7 @@ Before a provider request, one atomic database statement reserves all four allow
 
 The total counter has no automatic reset. Server input is bounded to 12,000 characters and output to 1,800 tokens. Counters contain hashed session/address identifiers and counts, not worker text. Failed reservations/provider requests may consume allowance conservatively. Database errors fail closed before model access. No schema migration is needed. These are application request limits, not a change to the provider account's billing settings.
 
-Hosted availability is controlled by runtime flags and shown in the app. At this release's verification point, hosted AI remained off. [Verification](verification.md) separates the live configuration from isolated provider testing.
+The owner enabled Gemini in the hosted app and fictional demos on 28 November 2026. Live checks verified four fictional extraction samples and one display translation; opt-out and mismatched-provider permission stayed on rules. Worker opt-in and all request caps remain enforced. [Verification](verification.md) distinguishes these smoke checks from the development evaluation and real-device voice testing.
 
 ## Offline drafts
 
