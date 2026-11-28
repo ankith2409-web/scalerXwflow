@@ -1,63 +1,97 @@
 # WorkEcho — Scaler × Wispr Flow
 
-A working prototype for worker-confirmed work histories, shared workplace comparisons and referral follow-up.
+**Turn a worker’s spoken job history into a record they can check, keep and choose to share.**
 
-## One-command startup
+WorkEcho is a working prototype for NGO field teams interviewing stone workers. It preserves the worker’s original words, organizes five remembered details and helps staff review possible shared workplaces for consented follow-up.
 
-Run `docker compose up --build`, then open http://localhost:3000. Docker Desktop must run Linux containers. No environment file, API key or cloud account is required for the main screen, manual details, confirmation, saved history, recovery or local staff access. A Docker volume preserves records. Stop with `docker compose down`; adding `-v` deletes that volume.
+[![Verify WorkEcho](https://github.com/ankith2409-web/scalerXwflow/actions/workflows/verify.yml/badge.svg?branch=main)](https://github.com/ankith2409-web/scalerXwflow/actions/workflows/verify.yml)
 
-## Genuine Wispr Flow
+## Open the app
 
-Install Wispr Flow, use the in-app setup guide, focus an answer and use your configured Flow shortcut, keyboard or bubble. WorkEcho receives the text Flow inserts; it cannot start or monitor Flow's microphone. Worker prompts, controls and Notetaker import screens have English, Hindi and Kannada translations. Staff screens use English. Spoken language support depends on Wispr and the device. The capture screen uses no replacement recognizer.
+| Link | Purpose |
+| --- | --- |
+| **[Live app on Vercel](https://workecho-psi.vercel.app/)** | Hosted worker workspace and Wispr account connection |
+| **[Worker demo](https://workecho-psi.vercel.app/?demo=1)** | Try capture, review and saving with fictional information |
+| **[Staff demo](https://workecho-psi.vercel.app/staff/review?demo=1)** | Explore fictional comparisons and simulated referrals without a staff account |
 
-From Notetaker on the hosted app connects your account through OAuth with PKCE and reads selected meeting transcripts through the official Wispr MCP server. MCP cannot start recordings. Notetaker access and real-account authorization are required. Missing connection credentials show a setup state without blocking startup.
+Use the demo links for evaluation. Their sandbox is separate from real worker records and expires after 30 minutes. Account connections, paid AI and actual outreach are disabled in the sandbox.
 
-## Workflow
+## Why WorkEcho exists
 
-1. Dictate one job's story or follow five questions, using Flow in each answer field.
-2. Choose saving, comparison sharing and follow-up independently.
-3. Review place, work, approximate time, landmark and name. Unknown details stay blank.
-4. Confirm the final sharing choices and save the job with its complete original account. Download a private return card with the recovery code.
-5. Reopen, correct, export, withdraw sharing or permanently delete a job. Corrections preserve the source; deletion removes its source and related review/follow-up records after confirmation. Rotating a recovery code also signs out other devices. Use “Start a different worker” to separate sessions.
+A worker may remember a contractor’s nickname, a railway crossing or a season rather than a formal employer name and exact dates. Field teams need to preserve that account and compare it with others without turning uncertain memories into facts.
 
-Drafts are saved only after explicit saving permission. Reload restores the private draft; stale writes from a second tab show a conflict and stop saving. Worker text is not kept in localStorage. Optional device drafts use a separate consent, IndexedDB, AES-GCM encryption and a device passphrase (PBKDF2-SHA256, 210,000 iterations). They expire after seven days and are removed on next access, confirmation, discard or worker closure. Only the public app shell is cached; API responses, files and map tiles are never cached by the service worker. Offline edits require the same worker and current server version before sync. Confirmation requires a connection. Lost-response retries reuse the original draft operation.
+For example, a **fictional** interview might say:
 
-Without AI, bounded rules extract labelled text and some natural English/Hindi/Kannada phrases. This is limited parsing, not multilingual model inference; the five-question route always permits manual review. Unknown fields remain blank. The app never automatically confirms an account or infers a medical diagnosis.
+> I cut stone slabs at Raju shed near the railway crossing in Jodhpur for two monsoons before lockdown.
 
-## Optional text models (currently disabled)
+WorkEcho helps the worker review **place, work, approximate time, landmark and workplace or contractor name**. With permission, staff can investigate shared workplace clues and coordinate occupational-health follow-up. A suggested link is a lead for human review, not proof of employment or a medical diagnosis.
 
-Additional working features include optional remembered-year timelines; printable work-history reports (Save as PDF in the browser); private QR return cards; optional coordinate/area confirmation using on-demand OpenStreetMap or Google Maps links; a staff workplace directory with aliases and documented reviews; private supporting files with explicit sharing and staff review; and cases with active staff owners, next actions, due dates and open/paused/closed states. Directory reviews do not prove employment, proximity never links records automatically, and undated periods are never converted into invented dates.
+## Try the core flow
 
-Files are limited to three JPEG, PNG or PDF attachments per job, 256 KB each, with a 64 MB application storage cap. They start private. Both per-file sharing and current job-sharing permission are required for staff downloads. File signatures are checked; automatic malware scanning is unavailable. Use fictional files in demonstrations and avoid identity/medical documents. Corrections flag older workplace links and cases for review; withdrawn follow-up permission removes cases from staff views. Maps load only after an explicit request and require no API key. Device drafts are for editing captured text; Wispr's offline availability depends on the provider and device.
+1. Open the **[worker demo](https://workecho-psi.vercel.app/?demo=1)**. Select **Try a fictional example** for sample text, or dictate fictional information using your installed Wispr Flow app. **One question at a time** offers guided entry.
+2. Select **Save my draft and work history**. Choose comparison sharing and follow-up separately. Select **Prepare my review**, check the fields against **Original words**, then **Confirm and save this job**. Unknown details can stay blank. Inspect the private return card and recovery options.
+3. Open the **[staff demo](https://workecho-psi.vercel.app/staff/review?demo=1)** and select **Enter as demo staff**. Inspect a seeded **Worker A / Worker B** comparison, record a decision reason and explore a simulated referral. The fixtures contain **43 fictional workers across 10 workplace scenarios** in five Indian cities.
 
-`WORKECHO_AI_ENABLED=0` is the default and the deployed setting. No model credits are spent. The server includes optional `gpt-4.1-mini` structured extraction and separate display translation, plus `text-embedding-3-small` ranking of already eligible workplace candidates. Enable only with `WORKECHO_AI_ENABLED=1` and a server-side `OPENAI_API_KEY` after choosing a usage budget. Model IDs can be changed with OPENAI_MODEL and OPENAI_EMBEDDING_MODEL. No training is required.
+## How it uses Wispr Flow
 
-Model extraction accepts only exact source excerpts, preserves uncertainty and requires worker review. Missing details produce targeted questions via the guided screen. Model outages fall back to basic suggestions. Translation never overwrites the original record. Device readback uses an available local voice; it can report that a language has no local voice.
+- **Flow-dictated input:** focus an answer and use the configured Wispr Flow shortcut or device keyboard. Flow inserts the text; WorkEcho handles review, consent and saving. The website does not operate Flow’s microphone or use a replacement recognizer.
+- **Wispr Notetaker import:** select **From Wispr Notetaker** in the **[live app](https://workecho-psi.vercel.app/)**. OAuth with PKCE and the official Wispr MCP server retrieve a selected meeting transcript. A real account with Notetaker access is required. MCP imports transcripts; it does not start recordings.
 
-Embeddings require both comparison sharing and AI permission on each record. Only the five confirmed fields are sent, in batches of up to 40 records, with a bounded 10-minute hash/vector cache. A similarity score only ranks deterministic candidates; it never overrides a locality conflict, accepts a link or creates a referral.
+The worker interface supports **English, Hindi and Kannada**; staff screens use English. Dictation language and device support depend on Wispr Flow. Real-device dictation and authenticated Notetaker import still need end-to-end verification.
 
-## Staff and backend
+## What works today
 
-Local Docker mode stores SQLite records on a volume and lets the first staff user create a passphrase. The hosted backend uses Neon PostgreSQL with individual accounts, expiring sessions, reviewer/health/admin roles, audit events, atomic writes and version checks. Only worker-shared histories are visible to staff. Referrals require outreach permission and an approval step. Invitations and appointments are performed outside WorkEcho and logged here.
+| Capability | Behavior |
+| --- | --- |
+| Worker review | Original text beside editable fields and source excerpts |
+| Consent and ownership | Separate save, comparison and follow-up choices; recovery, correction, export, withdrawal and per-job deletion |
+| Staff review | Shared-account comparisons, decision reasons and permission-gated referrals |
+| Offline editing | Optional encrypted device drafts and reconnect checks; final confirmation requires a connection |
 
-The first cloud administrator needs a one-time setup code kept outside this repository. The owner has chosen to leave setup pending. Signed-in staff can change their password using the current password, revoking other sessions. Credentials and OAuth tokens stay server-side. Fresh schema: database/workecho.sql. Existing installations: apply migrations 002, 003 and 004 in order from database/migrations. Migration 004 adds feature metadata and encrypted fictional-demo storage without changing existing worker records. Test migrations on an isolated Neon branch first.
+Supporting tools include remembered-year timelines, printable reports, private attachments, optional maps, a workplace directory and case management. Technical details and boundaries are in [architecture](docs/architecture.md).
 
-Staff use an overview request for comparison/referral data and a paginated search request for shared histories. Literal search reaches all shared records in pages of 25; comparison review remains bounded to the 200 most recent shared records. Approval, deletion ownership and outreach permissions are checked server-side. Operations and recovery guidance: docs/operations.md.
+**AI is disabled in the deployed app and demo.** Basic rules and guided manual entry remain available. Optional model adapters exist, but no live inference or multilingual accuracy result is claimed.
 
-## Judge demo
+This is a prototype: production staff provisioning and target-user usability testing remain outstanding. Two open QA defects affect interrupted-upload retries and unsaved date edits. See [verification and known issues](docs/verification.md#known-issues) before using it beyond a demonstration.
 
-Open `/?demo=1` (and `/staff/review?demo=1`) for an isolated fictional worker/staff workflow. It never uses real worker records, sends outreach or enables account connections/models. On Neon, encrypted sandbox snapshots live in a separate private table with random HttpOnly browser tokens, optimistic versions and a 30-minute expiry. Small keyless hosted demos can fall back to bounded encrypted cookies. Use fictional data. The main screen and Docker workflow load without secrets.
+## Run from source
 
-## Development
+The Vercel links above are the public preview. For local evaluation, install Docker with Linux containers running:
 
-The fictional staff demo includes 43 synthetic workers across 10 workplace scenarios in Bengaluru, Mysuru, Tumakuru, Jodhpur and Jaipur. Search comparison cards by person, city, task or workplace. Example map links show approximate illustrative areas, not real employer addresses. Cases include overlapping/separate/unknown years, missing details, declined follow-up and same-name workplaces in conflicting cities. Fixtures are generated only in the fictional demo and never seed real worker records.
+```sh
+git clone https://github.com/ankith2409-web/scalerXwflow.git
+cd scalerXwflow
+docker compose up --build
+```
 
-Use Node.js 24.12 or newer. Run `npm ci`, `npm run build`, then `npm start`. Local Node startup prints http://127.0.0.1:3002 or the next available port.
+Open the local address printed by the container. No API keys, environment file or cloud account are required for manual capture, confirmation, recovery or local staff access. Docker exposes port 3000 and preserves SQLite records in a named volume. Stop with `docker compose down`; adding `-v` deletes that volume.
 
-`npm test` checks ownership, consent, conflicts, idempotency, referrals, evidence and OAuth using a provider double. `node tests/chromium.browser.mjs` checks the rebuilt interface when PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH points to Chromium. `npm run test:cloud` checks production SQL with PGlite when PGLITE_ROOT points to @electric-sql/pglite 0.3.16.
+For Node.js development, use **24.12 or newer**:
 
-Verification details and the ten-issue fix matrix are in docs/verification.md. Automated checks cover backend workflows, provider failures, consent, ownership and OAuth; PostgreSQL checks run the production SQL and HTTP handler together. Chromium checks use a real headless browser. A fresh Docker image built and passed keyless startup, confirmation, source persistence and recovery in GitHub Actions. Live model inference remains disabled by owner choice. Real Wispr account authorization, multilingual dictation quality and target-worker usability require real-account/device testing.
+```sh
+npm ci
+npm run build
+npm start
+```
 
-## Submission
+Use the address printed by the server; it selects an available development port. Optional configuration is documented in [.env.example](.env.example).
 
-Keep this repository public. The default branch must contain Dockerfile and docker-compose.yml so judges can start it directly. The supplied requirements screenshot shows only the code section; check the remaining two submission items before the single final submission. It specifies 30 November, 11:59 pm without showing a timezone. Do not claim code was written during the event without your own dated evidence.
+## Engineering and verification
+
+React and TypeScript power the interface. The Node.js backend uses SQLite locally and Neon PostgreSQL on Vercel, with scoped worker sessions, staff roles, version checks and audit events.
+
+The latest QA run passed **48 automated tests**, the production build, PostgreSQL checks, Chromium workflows and keyless Docker startup. Browser checks cover consent, recovery, encrypted offline reload, private files, source-preserving corrections and staff tools. These results do not establish real-world matching accuracy or production readiness.
+
+```sh
+npm test
+npm run build
+npm run test:browser
+npm run test:cloud
+```
+
+Browser tests require `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`; PostgreSQL tests require `PGLITE_ROOT`. Setup and coverage are documented below.
+
+- [Architecture, data flow and optional integrations](docs/architecture.md)
+- [Verification, test setup and known issues](docs/verification.md)
+- [Operations, staff provisioning and recovery](docs/operations.md)
+- [Database schema](database/workecho.sql) and [ordered migrations](database/migrations)
